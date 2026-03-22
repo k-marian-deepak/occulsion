@@ -1,0 +1,113 @@
+services:
+  # ── Frontend ────────────────────────────────────────────────────────────────
+  frontend:
+    build: ./frontend
+    ports: ["5173:5173"]
+    environment:
+      - VITE_API_URL=http://localhost:8000
+      - VITE_WS_URL=ws://localhost:8000
+    depends_on: [api]
+
+  # ── Backend API ─────────────────────────────────────────────────────────────
+  api:
+    build: ./backend
+    command: uvicorn app.main:sio_app --host 0.0.0.0 --port 8000 --reload
+    ports: ["8000:8000"]
+    env_file: ./backend/.env
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  # ── Celery Worker ──────────────────────────────────────────────────────────
+  worker:
+    build: ./backend
+    command: celery -A app.workers.celery_app worker --loglevel=info -Q celery
+    env_file: ./backend/.env
+    volumes:
+      - ./backend:/app
+    depends_on: [redis, postgres]
+
+  # ── PostgreSQL ─────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: occlusion
+      POSTGRES_USER: occ
+      POSTGRES_PASSWORD: occ
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U occ -d occlusion"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports: ["6379:6379"]
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+
+  # ── Keycloak SSO ───────────────────────────────────────────────────────────
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0
+    command: start-dev
+    restart: unless-stopped
+    ports: ["8080:8080"]
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+    volumes:
+      - keycloak_data:/opt/keycloak/data
+
+  # ── MinIO ──────────────────────────────────────────────────────────────────
+  minio:
+    image: minio/minio
+    command: server /data --console-address ':9001'
+    restart: unless-stopped
+    ports: ["9000:9000", "9001:9001"]
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+
+  # ── Qdrant ──────────────────────────────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant
+    restart: unless-stopped
+    ports: ["6333:6333"]
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  # ── Ollama (LLM) ────────────────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama
+    restart: unless-stopped
+    ports: ["11434:11434"]
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  pg_data:
+  redis_data:
+  keycloak_data:
+  minio_data:
+  qdrant_data:
+  ollama_data:
