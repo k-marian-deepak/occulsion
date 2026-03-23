@@ -628,23 +628,54 @@ export function CasesPage() {
               {/* Top Details Nav */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 24px', borderBottom: '1px solid #2a2e35' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 32 }}>
-                  <div style={{ cursor: 'pointer', color: '#9ca3af' }}><i className="fa-solid fa-chevron-left" /></div>
+                  <div 
+                    onClick={() => {
+                      const tabs = ['Overview', 'Observables', 'Notes', 'Attachments', 'Linked cases', 'Events'];
+                      const idx = tabs.indexOf(activeTab);
+                      if (idx > 0) setActiveTab(tabs[idx - 1]);
+                    }}
+                    style={{ 
+                      cursor: ['Overview', 'Observables', 'Notes', 'Attachments', 'Linked cases', 'Events'].indexOf(activeTab) > 0 ? 'pointer' : 'default', 
+                      color: ['Overview', 'Observables', 'Notes', 'Attachments', 'Linked cases', 'Events'].indexOf(activeTab) > 0 ? '#e2e8f0' : '#4b5563',
+                      transition: 'color 0.2s'
+                    }}
+                  >
+                    <i className="fa-solid fa-chevron-left" />
+                  </div>
                   
                   {['Overview', 'Observables', 'Notes', 'Attachments', 'Linked cases', 'Events'].map((tab, idx) => (
                     <div key={tab} onClick={() => setActiveTab(tab)} style={{ 
-                      fontSize: 13, fontWeight: tab === activeTab ? 600 : 500, color: tab === activeTab ? '#fff' : '#e2e8f0', 
-                      position: 'relative', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', paddingBottom: 16, marginBottom: -16
+                      fontSize: 13, fontWeight: 500, color: tab === activeTab ? '#fff' : '#9ca3af', 
+                      position: 'relative', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', paddingBottom: 16, marginBottom: -16,
+                      transition: 'color 0.2s cubic-bezier(0.4, 0, 0.2, 1)'
                     }}>
                       {tab}
-                      {idx > 0 && idx < 5 && <div style={{ background: '#333842', color: '#9ca3af', fontSize: 11, padding: '1px 6px', borderRadius: 12 }}>{idx === 1 ? 2 : (idx === 3 ? 4 : (idx === 4 ? 0 : 2))}</div>}
-                      {idx === 5 && <div style={{ background: '#333842', color: '#9ca3af', fontSize: 11, padding: '1px 6px', borderRadius: 12 }}>1</div>}
-                      {tab === activeTab && <div style={{ position: 'absolute', bottom: -1, left: 0, right: 0, height: 2, background: '#fff' }} />}
+                      {idx > 0 && idx < 5 && <div style={{ background: '#333842', color: '#9ca3af', fontSize: 11, padding: '1px 6px', borderRadius: 12, transition: 'background 0.2s, color 0.2s' }}>{idx === 1 ? 2 : (idx === 3 ? 4 : (idx === 4 ? 0 : 2))}</div>}
+                      {idx === 5 && <div style={{ background: '#333842', color: '#9ca3af', fontSize: 11, padding: '1px 6px', borderRadius: 12, transition: 'background 0.2s, color 0.2s' }}>1</div>}
+                      <div style={{ 
+                        position: 'absolute', bottom: -1, left: 0, right: 0, height: 2, background: '#fff', 
+                        transform: tab === activeTab ? 'scaleX(1)' : 'scaleX(0)', transformOrigin: 'left', 
+                        opacity: tab === activeTab ? 1 : 0, transition: 'transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s' 
+                      }} />
                     </div>
                   ))}
                 </div>
                 
                 <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-                  <button onClick={() => setSidePanelView('socrates')} style={{ background: 'none', border: 'none', color: sidePanelView === 'socrates' ? '#8b5cf6' : '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, transition: 'color 0.2s' }}><i className="fa-solid fa-headset" style={{ fontSize: 16 }} /></button>
+                  <div 
+                    onClick={() => {
+                      const tabs = ['Overview', 'Observables', 'Notes', 'Attachments', 'Linked cases', 'Events'];
+                      const idx = tabs.indexOf(activeTab);
+                      if (idx < tabs.length - 1) setActiveTab(tabs[idx + 1]);
+                    }}
+                    style={{ 
+                      cursor: ['Overview', 'Observables', 'Notes', 'Attachments', 'Linked cases', 'Events'].indexOf(activeTab) < 5 ? 'pointer' : 'default', 
+                      color: ['Overview', 'Observables', 'Notes', 'Attachments', 'Linked cases', 'Events'].indexOf(activeTab) < 5 ? '#e2e8f0' : '#4b5563', 
+                      display: 'flex', alignItems: 'center', transition: 'color 0.2s'
+                    }}
+                  >
+                    <i className="fa-solid fa-chevron-right" />
+                  </div>
                   <button style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}><MoreHorizontal size={16} /></button>
                   <button onClick={() => setSelectedCase(null)} style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', marginRight: -8 }}><X size={16} /></button>
                 </div>
@@ -652,7 +683,7 @@ export function CasesPage() {
 
               {/* Toggled Tabs Content */}
               {activeTab === 'Overview' && (
-                <div style={{ padding: '32px 48px', maxWidth: 1000, margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 32 }}>
+                <div key="overview-tab" className="animate-fade-in" style={{ padding: '32px 48px', maxWidth: 1000, margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 32 }}>
                   
                   {/* Case Summary block */}
                   <div>
@@ -725,7 +756,7 @@ export function CasesPage() {
                 </div>
               )}
               {activeTab === 'Events' && (
-                <div style={{ padding: '32px 48px', maxWidth: 1000, margin: '0 auto', width: '100%' }}>
+                <div key="events-tab" className="animate-fade-in" style={{ padding: '32px 48px', maxWidth: 1000, margin: '0 auto', width: '100%' }}>
                   <div style={{ display: 'grid', gridTemplateColumns: 'minmax(150px, 1fr) minmax(200px, 2fr) minmax(200px, 2fr) auto', borderBottom: '1px solid #333842', paddingBottom: 16, marginBottom: 16, color: '#9ca3af', fontSize: 13, fontWeight: 600 }}>
                     <div>Event ID</div>
                     <div>Event source</div>
@@ -744,7 +775,7 @@ export function CasesPage() {
               )}
 
               {activeTab === 'Observables' && (
-                <div style={{ padding: '32px 48px', maxWidth: 1000, margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 16, minHeight: '100%' }}>
+                <div key="observables-tab" className="animate-fade-in" style={{ padding: '32px 48px', maxWidth: 1000, margin: '0 auto', width: '100%', display: 'flex', flexDirection: 'column', gap: 16, minHeight: '100%' }}>
                   <div style={{ background: '#1c1e23', border: '1px solid #333842', borderRadius: 12, padding: '16px 24px', display: 'flex', gap: 24, alignItems: 'center' }}>
                     <div style={{ width: 80, fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>URL</div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
