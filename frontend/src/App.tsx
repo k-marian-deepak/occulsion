@@ -10,6 +10,7 @@ import { IntegrationsPage } from '@/routes/IntegrationsPage'
 import { InsightsPage } from '@/routes/InsightsPage'
 import { ActivityPage } from '@/routes/ActivityPage'
 import { SettingsPage } from '@/routes/SettingsPage'
+import { TemplatesPage } from '@/routes/TemplatesPage'
 
 function AppLayout({ children, noPad }: { children: React.ReactNode; noPad?: boolean }) {
   return (
@@ -39,8 +40,9 @@ export default function App() {
             <Route path="/insights"    element={<AppLayout><InsightsPage /></AppLayout>} />
             <Route path="/activity"    element={<AppLayout><ActivityPage /></AppLayout>} />
             <Route path="/settings"    element={<AppLayout noPad><SettingsPage /></AppLayout>} />
+            <Route path="/templates"   element={<AppLayout><TemplatesPage /></AppLayout>} />
             {/* Remaining stubs */}
-            {['/variables', '/templates', '/changelog', '/help'].map(p => (
+            {['/variables', '/changelog', '/help'].map(p => (
               <Route key={p} path={p} element={
                 <AppLayout>
                   <div className="animate-fade-in" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh', flexDirection: 'column', gap: 12 }}>

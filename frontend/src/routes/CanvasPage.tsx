@@ -1,7 +1,7 @@
 import { WorkflowCanvas } from '@/components/canvas/WorkflowCanvas'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { Search, ChevronDown, X, Copy, Trash2, MoreHorizontal, RotateCcw, ArrowRightLeft, Wand2, Settings, Plus } from 'lucide-react'
+import { Search, ChevronDown, X, Copy, Trash2, MoreHorizontal, RotateCcw, ArrowRightLeft, Wand2, Settings, Plus, Check, ArrowLeft, Save } from 'lucide-react'
 import { ReactFlowProvider, useReactFlow } from '@xyflow/react'
 
 const ACTIONS = [
@@ -19,6 +19,7 @@ const ACTIONS = [
 export function CanvasPage() {
   const { setNodes, setEdges, addNode, selectedNode } = useWorkflowStore()
   const [search, setSearch] = useState('')
+  const [editingStep, setEditingStep] = useState<any | null>(null)
 
   // On mount, demo node matching Torq screenshot
   useEffect(() => {
@@ -133,7 +134,11 @@ export function CanvasPage() {
 
       {/* ── Properties Panel ─────────────────────────────────── */}
       {selectedNode && (
-        <PropertiesPanel node={selectedNode} />
+        <PropertiesPanel node={selectedNode} onEditStep={() => setEditingStep(selectedNode)} />
+      )}
+
+      {editingStep && (
+        <StepBuilder node={editingStep} onClose={() => setEditingStep(null)} />
       )}
     </div>
   )
@@ -192,7 +197,7 @@ function DropZone({ addNode }: { addNode: (node: any) => void }) {
   )
 }
 
-function PropertiesPanel({ node }: { node: any }) {
+function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => void }) {
   const isTrigger = node.type === 'trigger'
   const [isHttpMode, setIsHttpMode] = useState(false)
   const [showHttpConfirm, setShowHttpConfirm] = useState(false)
@@ -259,7 +264,11 @@ function PropertiesPanel({ node }: { node: any }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: '#9ca3af', position: 'relative' }}>
             <RotateCcw size={14} style={{ cursor: 'pointer' }} />
             <ArrowRightLeft size={14} style={{ cursor: 'pointer', color: showHttpConfirm ? '#fff' : '#9ca3af' }} onClick={() => setShowHttpConfirm(!showHttpConfirm)} />
-            <Wand2 size={14} style={{ cursor: 'pointer' }} />
+            
+            <div style={{ position: 'relative', display: 'flex' }} title="Edit custom step">
+              <Wand2 size={14} style={{ cursor: 'pointer', color: '#fff' }} onClick={onEditStep} />
+            </div>
+
             <Settings size={14} style={{ cursor: 'pointer' }} />
             
             {showHttpConfirm && (
@@ -386,6 +395,302 @@ function PropertiesPanel({ node }: { node: any }) {
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+// --- Step Builder Wizard Overlay ---
+function StepBuilder({ node, onClose }: { node: any, onClose: () => void }) {
+  const [stepPhase, setStepPhase] = useState(1) // 1: Details, 2: HTTP Request, 3: Output Example
+  const [showToast, setShowToast] = useState(false)
+
+  const handleSave = () => {
+    setShowToast(true)
+    setTimeout(() => {
+      setShowToast(false)
+      onClose()
+    }, 2500)
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: '#1c1e23', display: 'flex', flexDirection: 'column', color: '#fff' }}>
+      
+      {/* Top Header */}
+      <div style={{ height: 60, borderBottom: '1px solid #2a2e35', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <div style={{ width: 14, height: 2, background: '#4dc4d6', borderRadius: 2 }} />
+            <div style={{ width: 14, height: 2, background: '#4dc4d6', borderRadius: 2 }} />
+            <div style={{ width: 14, height: 2, background: '#4dc4d6', borderRadius: 2 }} />
+          </div>
+          <div style={{ fontSize: 16, fontWeight: 600, color: '#fff' }}>Step Builder</div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ fontSize: 13, color: '#fb923c' }}>Status: <span style={{ color: '#fff' }}>Draft</span></div>
+          <button style={{ background: 'transparent', border: '1px solid #333842', color: '#fff', padding: '6px 16px', borderRadius: 6, fontSize: 13, fontWeight: 500 }}>Test Run</button>
+          <button onClick={handleSave} style={{ background: '#fff', border: 'none', color: '#000', padding: '6px 16px', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Save</button>
+        </div>
+      </div>
+
+      <div style={{ flex: 1, display: 'flex', background: '#0e1015' }}>
+        
+        {/* Left Nav */}
+        <div style={{ width: 260, borderRight: '1px solid #1c1e23', padding: '32px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          
+          <button onClick={() => setStepPhase(1)} style={{ background: stepPhase === 1 ? '#252830' : 'transparent', border: 'none', borderRadius: 8, padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', color: '#fff' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ fontSize: 12, color: '#9ca3af' }}>(1)</span>
+              <span style={{ fontSize: 14, fontWeight: 500 }}>Step details</span>
+            </div>
+            <div style={{ width: 20, height: 20, borderRadius: '50%', background: '#10b98120', border: '1px solid #10b981', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Check size={12} color="#10b981" />
+            </div>
+          </button>
+
+          <button onClick={() => setStepPhase(2)} style={{ background: stepPhase === 2 ? '#252830' : 'transparent', border: 'none', borderRadius: 8, padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', color: '#fff' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ fontSize: 12, color: '#9ca3af' }}>(2)</span>
+              <span style={{ fontSize: 14, fontWeight: 500 }}>HTTP request</span>
+            </div>
+            {stepPhase > 1 && (
+            <div style={{ width: 20, height: 20, borderRadius: '50%', background: '#10b98120', border: '1px solid #10b981', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Check size={12} color="#10b981" />
+            </div>
+            )}
+          </button>
+
+          {/* Variables list */}
+          <div style={{ padding: '16px 8px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {['INQUIRY_TYPE', 'START_TIME', 'END_TIME', 'STATUS', 'ABNORMAL_A...'].map((v, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: '#9ca3af', fontSize: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  {i === 0 || i === 3 ? <Check size={14} color="#e2e8f0" /> : <div style={{width: 14, textAlign: 'center'}}>=</div>}
+                  <span style={{ fontFamily: 'monospace', letterSpacing: 0.5 }}>{v}</span>
+                </div>
+                <MoreHorizontal size={14} />
+              </div>
+            ))}
+          </div>
+
+          <button onClick={() => setStepPhase(3)} style={{ background: stepPhase === 3 ? '#252830' : 'transparent', border: 'none', borderRadius: 8, padding: '12px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', color: '#fff' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ fontSize: 12, color: '#9ca3af' }}>(3)</span>
+              <span style={{ fontSize: 14, fontWeight: 500 }}>Output example</span>
+            </div>
+            {stepPhase > 2 && (
+            <div style={{ width: 20, height: 20, borderRadius: '50%', background: '#10b98120', border: '1px solid #10b981', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Check size={12} color="#10b981" />
+            </div>
+            )}
+          </button>
+        </div>
+
+        {/* Center Panel */}
+        <div style={{ flex: 1, background: '#16191f', borderRight: '1px solid #1c1e23', display: 'flex', flexDirection: 'column', position: 'relative' }}>
+          
+          <div style={{ flex: 1, padding: 48, overflowY: 'auto' }}>
+            {stepPhase === 1 && (
+              <div className="animate-fade-in" style={{ maxWidth: 500 }}>
+                <div style={{ fontSize: 20, fontWeight: 600, color: '#fff', marginBottom: 32 }}>Step details</div>
+                
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Name</div>
+                  <input value="List Detections" readOnly style={{ width: '100%', background: '#252830', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#fff', fontSize: 13, outline: 'none' }} />
+                </div>
+
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 13, fontWeight: 600, color: '#fff' }}>
+                    <div>Description</div>
+                    <div style={{ color: '#6b7280', fontWeight: 400, fontStyle: 'italic' }}>Optional</div>
+                  </div>
+                  <textarea readOnly value="Returns a list of Detection 360deg reports that you have submitted and view corresponding details for each case, including report summaries, statuses, message analyses, and more." style={{ width: '100%', height: 100, background: '#252830', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, resize: 'none', outline: 'none', lineHeight: 1.5 }} />
+                </div>
+
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 13, fontWeight: 600, color: '#fff' }}>
+                    <div>Documentation URL</div>
+                    <div style={{ color: '#6b7280', fontWeight: 400, fontStyle: 'italic' }}>Optional</div>
+                  </div>
+                  <input readOnly value="https://app.swaggerhub.com/apis-docs/abnormal-security/..." style={{ width: '100%', background: '#252830', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#9ca3af', fontSize: 13, outline: 'none' }} />
+                </div>
+
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Vendor</div>
+                  <div style={{ position: 'relative' }}>
+                    <select style={{ width: '100%', appearance: 'none', background: '#252830', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}>
+                      <option>abnormal_security</option>
+                    </select>
+                    <ChevronDown size={14} color="#9ca3af" style={{ position: 'absolute', right: 12, top: 12, pointerEvents: 'none' }} />
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 13, fontWeight: 600, color: '#fff' }}>
+                    <div>Integration</div>
+                    <div style={{ color: '#6b7280', fontWeight: 400, fontStyle: 'italic' }}>Optional</div>
+                  </div>
+                  <div style={{ position: 'relative' }}>
+                    <select style={{ width: '100%', appearance: 'none', background: '#252830', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}>
+                      <option>Abnormal Security</option>
+                    </select>
+                    <ChevronDown size={14} color="#9ca3af" style={{ position: 'absolute', right: 12, top: 12, pointerEvents: 'none' }} />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {stepPhase === 2 && (
+              <div className="animate-fade-in" style={{ maxWidth: 500 }}>
+                <div style={{ fontSize: 20, fontWeight: 600, color: '#fff', marginBottom: 16 }}>HTTP Request</div>
+                <div style={{ fontSize: 13, color: '#e2e8f0', lineHeight: 1.5, marginBottom: 32 }}>
+                  Markers in the HTTP request configuration represent parameters. To add new ones, highlight the value and set it as a parameter...
+                </div>
+                
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 8 }}>URL</div>
+                  <div style={{ width: '100%', background: '#252830', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#9ca3af', fontSize: 13, lineHeight: 1.6, wordBreak: 'break-all' }}>
+                    https://api.abnormalplatform.com/v1/detection360/reports?inquiry_type=<span style={{background: '#0e7490', color: '#fff', padding: '0 4px', borderRadius: 2}}>INQUIRY_TYPE</span>&end=<span style={{background: '#0e7490', color: '#fff', padding: '0 4px', borderRadius: 2}}>END_TIME</span>&start=<span style={{background: '#0e7490', color: '#fff', padding: '0 4px', borderRadius: 2}}>START_TIME</span>&status=<span style={{background: '#0e7490', color: '#fff', padding: '0 4px', borderRadius: 2}}>STATUS</span>
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Method</div>
+                  <div style={{ position: 'relative' }}>
+                    <select style={{ width: '100%', appearance: 'none', background: '#252830', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}>
+                      <option>GET</option>
+                    </select>
+                    <ChevronDown size={14} color="#9ca3af" style={{ position: 'absolute', right: 12, top: 12, pointerEvents: 'none' }} />
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Authorization</div>
+                  <div style={{ position: 'relative' }}>
+                    <select style={{ width: '100%', appearance: 'none', background: '#252830', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}>
+                      <option>Bearer</option>
+                    </select>
+                    <ChevronDown size={14} color="#9ca3af" style={{ position: 'absolute', right: 12, top: 12, pointerEvents: 'none' }} />
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Token</div>
+                  <div style={{ width: '100%', background: '#252830', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px' }}>
+                    <span style={{background: '#0e7490', color: '#fff', padding: '2px 4px', borderRadius: 2, fontSize: 12}}>ABNORMAL_ACCESS_TOKEN</span>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px solid #2a2e35', paddingTop: 16 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>Headers</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#e2e8f0', fontSize: 12, cursor: 'pointer' }}>
+                    <Plus size={14} /> Add
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {stepPhase === 3 && (
+              <div className="animate-fade-in" style={{ maxWidth: 500 }}>
+                <div style={{ fontSize: 20, fontWeight: 600, color: '#fff', marginBottom: 32 }}>Define output example <span style={{color: '#9ca3af', fontWeight: 400, fontSize: 16}}>(optional)</span></div>
+                
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 13, fontWeight: 600, color: '#fff' }}>
+                    <div>Description</div>
+                    <div style={{ color: '#6b7280', fontWeight: 400, fontStyle: 'italic' }}>Optional</div>
+                  </div>
+                  <input placeholder="Enter description" style={{ width: '100%', background: '#252830', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#fff', fontSize: 13, outline: 'none' }} />
+                </div>
+
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 13, fontWeight: 600, color: '#fff' }}>
+                    <div>Example</div>
+                    <div style={{ color: '#6b7280', fontWeight: 400, fontStyle: 'italic' }}>Optional</div>
+                  </div>
+                  <textarea style={{ width: '100%', height: 200, background: '#252830', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, resize: 'none', outline: 'none' }} />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Bottom Nav Bar center */}
+          <div style={{ height: 60, borderTop: '1px solid #2a2e35', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', background: '#16191f' }}>
+            <button onClick={() => setStepPhase(Math.max(1, stepPhase - 1))} style={{ background: 'none', border: 'none', color: '#e2e8f0', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', visibility: stepPhase > 1 ? 'visible' : 'hidden' }}>
+              <ArrowLeft size={16} /> Back
+            </button>
+            
+            <div style={{ height: 2, flex: 1, margin: '0 24px', background: '#333842', position: 'relative' }}>
+              <div style={{ position: 'absolute', top: 0, left: 0, height: '100%', background: '#ff3366', width: `${((stepPhase) / 3) * 100}%`, transition: 'width .2s' }} />
+            </div>
+
+            {stepPhase < 3 ? (
+              <button onClick={() => setStepPhase(stepPhase + 1)} style={{ background: '#e2e8f0', border: 'none', color: '#000', fontSize: 13, fontWeight: 600, padding: '8px 24px', borderRadius: 6, cursor: 'pointer' }}>Next</button>
+            ) : (
+              <button onClick={handleSave} style={{ background: '#e2e8f0', border: 'none', color: '#000', fontSize: 13, fontWeight: 600, padding: '8px 24px', borderRadius: 6, cursor: 'pointer' }}>Save</button>
+            )}
+          </div>
+        </div>
+
+        {/* Right Preview Panel */}
+        <div style={{ width: 440, padding: 32 }}>
+          <div style={{ background: '#1c1e23', borderRadius: 8, padding: 24, border: '1px solid #333842' }}>
+            
+            {/* Header Tabs */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, borderBottom: '1px solid #2a2e35', paddingBottom: 12, marginBottom: 24 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', borderBottom: '2px solid #fff', paddingBottom: 11, marginBottom: -13 }}>Properties</div>
+              <div style={{ fontSize: 13, fontWeight: 500, color: '#9ca3af' }}>Execution Log</div>
+            </div>
+
+            {/* Node representation preview */}
+            <div style={{ display: 'flex', gap: 16, marginBottom: 32 }}>
+              <div style={{ width: 48, height: 48, background: '#fff', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <div style={{fontWeight: 900, fontSize: 32, color: '#000', marginTop: -4}}>Λ</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 8 }}>List Detections</div>
+                <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.5, marginBottom: 8 }}>Returns a list of Detection 360deg reports that you have submitted and view corresponding details for each case...</div>
+                <div style={{ fontSize: 11, color: '#9ca3af' }}>Abnormal Security • 2.0.0</div>
+              </div>
+            </div>
+
+            {/* Parameters preview */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Parameters</div>
+              <Settings size={14} color="#9ca3af" />
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 500, color: '#fff', marginBottom: 8 }}>Inquiry type</div>
+              <div style={{ position: 'relative' }}>
+                <select style={{ width: '100%', appearance: 'none', background: '#252830', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}>
+                  <option>MISSED_ATTACK</option>
+                </select>
+                <ChevronDown size={14} color="#9ca3af" style={{ position: 'absolute', right: 12, top: 12, pointerEvents: 'none' }} />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 500, color: '#fff', marginBottom: 8 }}>Integration</div>
+              <div style={{ position: 'relative' }}>
+                <div style={{ width: '100%', background: '#252830', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', height: 40 }} />
+                <ChevronDown size={14} color="#9ca3af" style={{ position: 'absolute', right: 12, top: 12, pointerEvents: 'none' }} />
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+
+      {/* Toast Notification */}
+      {showToast && (
+        <div className="animate-fade-in" style={{ position: 'fixed', bottom: 40, left: '50%', transform: 'translateX(-50%)', background: '#1c1e23', border: '1px solid #1db87a', borderRadius: 8, padding: '12px 24px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: '0 8px 30px rgba(0,0,0,0.5)', zIndex: 10000 }}>
+          <div style={{ width: 24, height: 24, borderRadius: '50%', background: '#1db87a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Check size={14} color="#000" strokeWidth={3} />
+          </div>
+          <span style={{ color: '#fff', fontSize: 14, fontWeight: 500 }}>Step was saved and added to your custom tab</span>
+        </div>
+      )}
+
     </div>
   )
 }
