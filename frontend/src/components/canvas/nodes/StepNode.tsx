@@ -1,35 +1,65 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react'
-import { Box } from 'lucide-react'
 
 export function StepNode({ data, selected }: NodeProps) {
   return (
     <div style={{
-      background: 'var(--bg2)',
-      border: `1px solid ${selected ? 'var(--border3)' : 'var(--border2)'}`,
-      borderRadius: 10,
-      padding: '10px 14px',
-      minWidth: 180,
-      boxShadow: selected ? '0 0 0 3px var(--aglow)' : 'none',
+      background: '#0e1015',
+      border: `1px solid ${selected ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.08)'}`,
+      borderRadius: 6,
+      padding: '10px 16px 10px 16px',
+      minWidth: 200,
+      display: 'flex', alignItems: 'center', gap: 12,
+      position: 'relative',
+      boxShadow: selected ? '0 0 0 2px rgba(255,255,255,0.1)' : '0 4px 12px rgba(0,0,0,0.5)',
       transition: 'all 0.15s ease',
     }}>
-      <Handle type="target" position={Position.Top} style={{ background: 'var(--border3)', width: 8, height: 8 }} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{
-          width: 28, height: 28, borderRadius: 7,
-          background: 'var(--bg3)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          color: 'var(--text2)',
-        }}>
-          <Box size={14} />
+      {/* ── Icon Squircle ──────────────────────────────────── */}
+      <div style={{
+        width: 32, height: 32, borderRadius: 8,
+        background: '#fff',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        flexShrink: 0,
+      }}>
+        <img
+          src={(data.iconUrl as string) || 'https://fav.farm/✨'}
+          alt=""
+          style={{ width: 16, height: 16, objectFit: 'contain' }}
+        />
+      </div>
+
+      {/* ── Text ───────────────────────────────────────────── */}
+      <div>
+        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', fontWeight: 500, marginBottom: 2 }}>
+          {(data.subtext as string) || 'Step'}
         </div>
-        <div>
-          <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>Step</div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
-            {(data.label as string) ?? 'Action'}
-          </div>
+        <div style={{ fontSize: 13, fontWeight: 500, color: '#fff', letterSpacing: '-0.01em' }}>
+          {(data.label as string) ?? 'Action'}
         </div>
       </div>
-      <Handle type="source" position={Position.Bottom} style={{ background: 'var(--border3)', width: 8, height: 8 }} />
+
+      {/* ── Handles ────────────────────────────────────────── */}
+      <Handle
+        type="target"
+        position={Position.Top}
+        style={{
+          background: '#0e1015',
+          border: '1px solid rgba(255,255,255,0.4)',
+          width: 12, height: 12,
+          borderRadius: 4,
+          top: -6,
+        }}
+      />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        style={{
+          background: '#0e1015',
+          border: '1px solid rgba(255,255,255,0.4)',
+          width: 12, height: 12,
+          borderRadius: 4,
+          bottom: -6,
+        }}
+      />
     </div>
   )
 }

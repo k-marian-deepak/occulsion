@@ -1,85 +1,189 @@
 import { WorkflowCanvas } from '@/components/canvas/WorkflowCanvas'
 import { useWorkflowStore } from '@/stores/workflowStore'
-import { useEffect } from 'react'
-import { Plus, Zap, Box, GitBranch, Sparkles, Save, GitCommit } from 'lucide-react'
+import { useState, useCallback, useRef, useEffect } from 'react'
+import { Search, ChevronRight } from 'lucide-react'
+import { ReactFlowProvider, useReactFlow } from '@xyflow/react'
 
-const DEMO_NODES = [
-  { id: '1', type: 'trigger',  position: { x: 250, y: 100 }, data: { label: 'Alert Received' } },
-  { id: '2', type: 'step',     position: { x: 250, y: 230 }, data: { label: 'Enrich IOCs' } },
-  { id: '3', type: 'operator', position: { x: 250, y: 360 }, data: { label: 'Severity ≥ High?' } },
-  { id: '4', type: 'ai',       position: { x: 80,  y: 490 }, data: { label: 'AI Triage' } },
-  { id: '5', type: 'step',     position: { x: 420, y: 490 }, data: { label: 'Close Alert' } },
-]
-
-const DEMO_EDGES = [
-  { id: 'e1-2', source: '1', target: '2', animated: true },
-  { id: 'e2-3', source: '2', target: '3' },
-  { id: 'e3-4', source: '3', target: '4', sourceHandle: 'true',  label: 'Yes', style: { stroke: 'var(--green)' } },
-  { id: 'e3-5', source: '3', target: '5', sourceHandle: 'false', label: 'No',  style: { stroke: 'var(--red)' } },
-]
-
-const TOOLBOX = [
-  { type: 'trigger',  label: 'Trigger',    icon: <Zap size={12} />,       color: 'var(--accent)' },
-  { type: 'step',     label: 'Step',       icon: <Box size={12} />,        color: 'var(--text2)' },
-  { type: 'operator', label: 'Condition',  icon: <GitBranch size={12} />,  color: 'var(--amber)' },
-  { type: 'ai',       label: 'AI Agent',   icon: <Sparkles size={12} />,   color: 'var(--green)' },
+const ACTIONS = [
+  { int: 'CrowdStrike', action: 'Create Indicator',        icon: 'https://companieslogo.com/img/orig/CRWD-369b50b5.png?t=1720244491' },
+  { int: 'CrowdStrike', action: 'Create RTR Session',      icon: 'https://companieslogo.com/img/orig/CRWD-369b50b5.png?t=1720244491' },
+  { int: 'CrowdStrike', action: 'Create Session',          icon: 'https://companieslogo.com/img/orig/CRWD-369b50b5.png?t=1720244491' },
+  { int: 'CrowdStrike', action: 'Delete Host',             icon: 'https://companieslogo.com/img/orig/CRWD-369b50b5.png?t=1720244491' },
+  { int: 'CrowdStrike', action: 'Delete Indicator',        icon: 'https://companieslogo.com/img/orig/CRWD-369b50b5.png?t=1720244491' },
+  { int: 'CrowdStrike', action: 'Download Intel Report',   icon: 'https://companieslogo.com/img/orig/CRWD-369b50b5.png?t=1720244491' },
+  { int: 'Jira',        action: 'Create Ticket',           icon: 'https://companieslogo.com/img/orig/TEAM-b4b39a3f.png?t=1720244494' },
+  { int: 'Slack',       action: 'Send Message',            icon: 'https://companieslogo.com/img/orig/WORK-2ac3a5e8.png?t=1720244494' },
+  { int: 'VirusTotal',  action: 'Check IP',                icon: 'https://companieslogo.com/img/orig/VirusTotal-icon.png?t=1' },
 ]
 
 export function CanvasPage() {
-  const { setNodes, setEdges, addNode, nodes } = useWorkflowStore()
+  const { setNodes, setEdges, addNode } = useWorkflowStore()
+  const [search, setSearch] = useState('')
 
+  // On mount, demo node matching Torq screenshot
   useEffect(() => {
-    setNodes(DEMO_NODES as any)
-    setEdges(DEMO_EDGES as any)
+    setNodes([{
+      id: 'n-1',
+      type: 'trigger',
+      position: { x: 350, y: 120 },
+      data: { label: 'On-demand' }
+    }] as any)
+    setEdges([])
   }, [])
 
-  const handleAddNode = (type: string, label: string) => {
-    const id = `node-${Date.now()}`
-    const offset = nodes.length * 20
-    addNode({
-      id,
-      type,
-      position: { x: 200 + offset, y: 200 + offset },
-      data: { label },
-    } as any)
+  const onDragStart = (e: React.DragEvent, action: any) => {
+    e.dataTransfer.setData('application/reactflow', JSON.stringify(action))
+    e.dataTransfer.effectAllowed = 'move'
   }
 
+  const visible = ACTIONS.filter(a =>
+    a.int.toLowerCase().includes(search.toLowerCase()) ||
+    a.action.toLowerCase().includes(search.toLowerCase())
+  )
+
   return (
-    <div style={{ display: 'flex', height: '100%', gap: 12 }}>
-      {/* Toolbox */}
-      <div className="card" style={{
-        width: 180, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 8,
-        height: 'fit-content',
+    <div style={{ display: 'flex', height: '100vh', width: '100%', background: '#0e1015' }}>
+      
+      {/* ── Drag & Drop Sidebar ────────────────────────────────── */}
+      <div style={{
+        width: 320, background: '#1c1e23', borderRight: '1px solid #2a2e35',
+        display: 'flex', flexDirection: 'column', flexShrink: 0,
+        boxShadow: '4px 0 20px rgba(0,0,0,0.4)', zIndex: 10
       }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>
-          Node Types
-        </div>
-        {TOOLBOX.map(t => (
-          <button
-            key={t.type}
-            className="btn btn-ghost"
-            id={`toolbox-${t.type}`}
-            style={{ justifyContent: 'flex-start', gap: 8, color: t.color }}
-            onClick={() => handleAddNode(t.type, t.label)}
-          >
-            {t.icon} {t.label}
+        
+        {/* Search */}
+        <div style={{ padding: '20px 16px 12px', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10, background: '#252830',
+            border: '1px solid #333842', borderRadius: 6, padding: '7px 12px', flex: 1,
+          }}>
+            <Search size={14} color="#8891a8" />
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{ background: 'none', border: 'none', outline: 'none', color: '#fff', fontSize: 13, width: '100%', fontFamily: 'inherit' }}
+              placeholder="Search for an integration"
+            />
+          </div>
+          <button style={{ background: 'none', border: 'none', color: '#8891a8', cursor: 'pointer', padding: 4 }}>
+            <i className="fa-solid fa-arrow-right-to-bracket" style={{ fontSize: 14 }} />
           </button>
-        ))}
+        </div>
 
-        <div style={{ height: 1, background: 'var(--border)', margin: '8px 0' }} />
+        {/* Tabs */}
+        <div style={{ display: 'flex', padding: '0 16px', borderBottom: '1px solid #2a2e35', marginBottom: 16 }}>
+          {[
+            { label: 'Public', count: 59, active: true },
+            { label: 'Cases', count: 0 },
+            { label: 'Utilities', count: 0 },
+            { label: 'Custom', count: 0 },
+          ].map(t => (
+            <div key={t.label} style={{
+              padding: '10px 10px', fontSize: 13, fontWeight: t.active ? 600 : 500,
+              color: t.active ? '#fff' : '#6b7280', display: 'flex', alignItems: 'center', gap: 6,
+              borderBottom: t.active ? '2px solid #fff' : '2px solid transparent',
+              cursor: 'pointer',
+            }}>
+              {t.label} <span style={{ background: t.active ? '#374151' : '#1f2937', padding: '2px 6px', borderRadius: 4, fontSize: 10, color: t.active ? '#fff' : '#9ca3af' }}>{t.count}</span>
+            </div>
+          ))}
+        </div>
 
-        <button className="btn btn-primary" id="btn-publish-workflow" style={{ width: '100%', justifyContent: 'center' }}>
-          <GitCommit size={12} /> Publish
-        </button>
-        <button className="btn btn-ghost" id="btn-save-draft" style={{ width: '100%', justifyContent: 'center' }}>
-          <Save size={12} /> Save Draft
-        </button>
+        {/* Action List */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {visible.map((a, i) => (
+            <div
+              key={i}
+              draggable
+              onDragStart={(e) => onDragStart(e, a)}
+              style={{
+                background: '#0e1015', border: '1px solid #2a2e35', borderRadius: 6,
+                padding: '12px', display: 'flex', alignItems: 'center', gap: 14,
+                cursor: 'grab', transition: 'border-color .15s',
+              }}
+              onMouseEnter={e => e.currentTarget.style.borderColor = '#4b5563'}
+              onMouseLeave={e => e.currentTarget.style.borderColor = '#2a2e35'}
+            >
+              {/* White Squircle */}
+              <div style={{
+                width: 36, height: 36, background: '#fff', borderRadius: 8,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
+              }}>
+                <img src={a.icon} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }}
+                  onError={e => e.currentTarget.style.display = 'none'}
+                />
+              </div>
+
+              {/* Text */}
+              <div>
+                <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 2 }}>{a.int}</div>
+                <div style={{ fontSize: 13, fontWeight: 500, color: '#fff' }}>{a.action}</div>
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
-      {/* Canvas */}
-      <div style={{ flex: 1, height: 'calc(100vh - 120px)', borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border)' }}>
-        <WorkflowCanvas />
+      {/* ── Canvas Area ──────────────────────────────────────── */}
+      <div style={{ flex: 1, position: 'relative' }}>
+        <ReactFlowProvider>
+          <WorkflowCanvasWrapper addNode={addNode as any} />
+        </ReactFlowProvider>
       </div>
+
+    </div>
+  )
+}
+
+function WorkflowCanvasWrapper({ addNode }: { addNode: (node: any) => void }) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  
+  // Need to extract the hook 
+  return (
+    <div ref={containerRef} style={{ width: '100%', height: '100%' }}>
+      <DropZone addNode={addNode} />
+    </div>
+  )
+}
+
+function DropZone({ addNode }: { addNode: (node: any) => void }) {
+  const { screenToFlowPosition } = useReactFlow()
+
+  const onDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+  }, [])
+
+  const onDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    const str = e.dataTransfer.getData('application/reactflow')
+    if (!str) return
+
+    const action = JSON.parse(str)
+    
+    // Convert screen coordinates to ReactFlow coordinates
+    let position = { x: e.clientX - 100, y: e.clientY - 30 }
+    if (screenToFlowPosition) {
+      position = screenToFlowPosition({ x: e.clientX, y: e.clientY })
+    }
+
+    const newNode = {
+      id: `node-${Date.now()}`,
+      type: 'step',
+      position,
+      data: { 
+        label: action.action, 
+        subtext: action.int,
+        iconUrl: action.icon 
+      },
+    }
+
+    addNode(newNode)
+  }, [addNode, screenToFlowPosition])
+
+  return (
+    <div style={{ width: '100%', height: '100%' }} onDragOver={onDragOver} onDrop={onDrop}>
+      <WorkflowCanvas />
     </div>
   )
 }
