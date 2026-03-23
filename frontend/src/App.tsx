@@ -34,7 +34,7 @@ export default function App() {
             <Route path="/" element={<Navigate to="/workflows" replace />} />
             <Route path="/dashboards" element={<AppLayout><DashboardPage /></AppLayout>} />
             <Route path="/workflows"   element={<AppLayout><WorkflowsPage /></AppLayout>} />
-            <Route path="/canvas"      element={<AppLayout><CanvasPage /></AppLayout>} />
+            <Route path="/canvas"      element={<AppLayout noPad><CanvasPage /></AppLayout>} />
             <Route path="/cases"       element={<AppLayout><CasesPage /></AppLayout>} />
             <Route path="/integrations"element={<AppLayout><IntegrationsPage /></AppLayout>} />
             <Route path="/insights"    element={<AppLayout><InsightsPage /></AppLayout>} />

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Filter, Search, ChevronDown } from 'lucide-react'
-import { DB, type Integration } from '@/data/integrations'
+import { DB, type Integration, getIntegrationLogo } from '@/data/integrations'
 
 export function IntegrationsPage() {
   const [search, setSearch] = useState('')
@@ -73,8 +73,19 @@ export function IntegrationsPage() {
               width: 48, height: 48, background: '#fff', borderRadius: 12, display: 'flex',
               alignItems: 'center', justifyContent: 'center', marginBottom: 16,
               boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
+              overflow: 'hidden'
             }}>
-              <i className={int.fa} style={{ color: int.ic !== '#fff' && int.ic !== 'var(--text)' ? int.ic : '#333', fontSize: 24 }} />
+              <img 
+                src={getIntegrationLogo(int.n)} 
+                alt={int.n} 
+                style={{ width: 28, height: 28, objectFit: 'contain' }}
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                  const nextSibling = e.currentTarget.nextElementSibling as HTMLElement;
+                  if (nextSibling) nextSibling.style.display = 'inline-block';
+                }}
+              />
+              <i className={int.fa} style={{ color: int.ic !== '#fff' && int.ic !== 'var(--text)' ? int.ic : '#333', fontSize: 24, display: 'none' }} />
             </div>
 
             {/* Name */}

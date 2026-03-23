@@ -2,20 +2,9 @@ import { WorkflowCanvas } from '@/components/canvas/WorkflowCanvas'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
+import { DB, getIntegrationLogo } from '@/data/integrations'
+import { ReactFlowProvider, useReactFlow, Panel } from '@xyflow/react'
 import { Search, ChevronDown, X, Copy, Trash2, MoreHorizontal, RotateCcw, ArrowRightLeft, Wand2, Settings, Plus, Check, ArrowLeft, Save, RefreshCcw } from 'lucide-react'
-import { ReactFlowProvider, useReactFlow } from '@xyflow/react'
-
-const ACTIONS = [
-  { int: 'CrowdStrike', action: 'Create Indicator',        icon: 'https://companieslogo.com/img/orig/CRWD-369b50b5.png?t=1720244491' },
-  { int: 'CrowdStrike', action: 'Create RTR Session',      icon: 'https://companieslogo.com/img/orig/CRWD-369b50b5.png?t=1720244491' },
-  { int: 'CrowdStrike', action: 'Create Session',          icon: 'https://companieslogo.com/img/orig/CRWD-369b50b5.png?t=1720244491' },
-  { int: 'CrowdStrike', action: 'Delete Host',             icon: 'https://companieslogo.com/img/orig/CRWD-369b50b5.png?t=1720244491' },
-  { int: 'CrowdStrike', action: 'Delete Indicator',        icon: 'https://companieslogo.com/img/orig/CRWD-369b50b5.png?t=1720244491' },
-  { int: 'CrowdStrike', action: 'Download Intel Report',   icon: 'https://companieslogo.com/img/orig/CRWD-369b50b5.png?t=1720244491' },
-  { int: 'Jira',        action: 'Create Ticket',           icon: 'https://companieslogo.com/img/orig/TEAM-b4b39a3f.png?t=1720244494' },
-  { int: 'Slack',       action: 'Send Message',            icon: 'https://companieslogo.com/img/orig/WORK-2ac3a5e8.png?t=1720244494' },
-  { int: 'VirusTotal',  action: 'Check IP',                icon: 'https://companieslogo.com/img/orig/VirusTotal-icon.png?t=1' },
-]
 
 export function CanvasPage() {
   const { setNodes, setEdges, addNode, selectedNode } = useWorkflowStore()
@@ -43,125 +32,104 @@ export function CanvasPage() {
     e.dataTransfer.effectAllowed = 'move'
   }
 
-  const visible = ACTIONS.filter(a =>
-    a.int.toLowerCase().includes(search.toLowerCase()) ||
-    a.action.toLowerCase().includes(search.toLowerCase())
+  const visible = DB.filter(a =>
+    a.n.toLowerCase().includes(search.toLowerCase()) ||
+    a.cat.toLowerCase().includes(search.toLowerCase())
   )
 
   return (
-    <div style={{ display: 'flex', height: '100vh', width: '100%', background: '#0e1015' }}>
+    <div style={{ display: 'flex', height: '100vh', width: '100%', background: '#0e1015', overflow: 'hidden' }}>
       
-      {/* ── Drag & Drop Sidebar ────────────────────────────────── */}
-      {viewMode === 'designer' && (
-        <div style={{
-          width: 320, background: '#1c1e23', borderRight: '1px solid #2a2e35',
-          display: 'flex', flexDirection: 'column', flexShrink: 0,
-          boxShadow: '4px 0 20px rgba(0,0,0,0.4)', zIndex: 10
-        }}>
-          
-          {/* Search */}
-          <div style={{ padding: '20px 16px 12px', display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 10, background: '#252830',
-              border: '1px solid #333842', borderRadius: 6, padding: '7px 12px', flex: 1,
-            }}>
-              <Search size={14} color="#8891a8" />
-              <input
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                style={{ background: 'none', border: 'none', outline: 'none', color: '#fff', fontSize: 13, width: '100%', fontFamily: 'inherit' }}
-                placeholder="Search for an integration"
-              />
-            </div>
-            <button style={{ background: 'none', border: 'none', color: '#8891a8', cursor: 'pointer', padding: 4 }}>
-              <i className="fa-solid fa-arrow-right-to-bracket" style={{ fontSize: 14 }} />
-            </button>
-          </div>
-
-          {/* Tabs */}
-          <div style={{ display: 'flex', padding: '0 16px', borderBottom: '1px solid #2a2e35', marginBottom: 16 }}>
-            {[
-              { label: 'Public', count: 59, active: true },
-              { label: 'Cases', count: 0 },
-              { label: 'Utilities', count: 0 },
-              { label: 'Custom', count: 0 },
-            ].map(t => (
-              <div key={t.label} style={{
-                padding: '10px 10px', fontSize: 13, fontWeight: t.active ? 600 : 500,
-                color: t.active ? '#fff' : '#6b7280', display: 'flex', alignItems: 'center', gap: 6,
-                borderBottom: t.active ? '2px solid #fff' : '2px solid transparent',
-                cursor: 'pointer',
+      {/* ── Left Sidebar ───────────────────────────────────────── */}
+      <div style={{
+        width: 320, background: '#1c1e23', borderRight: '1px solid #2a2e35',
+        display: 'flex', flexDirection: 'column', flexShrink: 0,
+        boxShadow: '4px 0 20px rgba(0,0,0,0.4)', zIndex: 10,
+        overflow: 'hidden'
+      }}>
+        {viewMode === 'designer' ? (
+          <div key="designer" className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+            {/* Search */}
+            <div style={{ padding: '20px 16px 12px', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 10, background: '#252830',
+                border: '1px solid #333842', borderRadius: 6, padding: '7px 12px', flex: 1,
               }}>
-                {t.label} <span style={{ background: t.active ? '#374151' : '#1f2937', padding: '2px 6px', borderRadius: 4, fontSize: 10, color: t.active ? '#fff' : '#9ca3af' }}>{t.count}</span>
+                <Search size={14} color="#8891a8" />
+                <input
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  style={{ background: 'none', border: 'none', outline: 'none', color: '#fff', fontSize: 13, width: '100%', fontFamily: 'inherit' }}
+                  placeholder="Search for an integration"
+                />
               </div>
-            ))}
-          </div>
-
-          {/* Action List */}
-          <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {visible.map((a, i) => (
-              <div
-                key={i}
-                draggable
-                onDragStart={(e) => onDragStart(e, a)}
-                style={{
-                  background: '#0e1015', border: '1px solid #2a2e35', borderRadius: 6,
-                  padding: '12px', display: 'flex', alignItems: 'center', gap: 14,
-                  cursor: 'grab', transition: 'border-color .15s',
-                }}
-                onMouseEnter={e => e.currentTarget.style.borderColor = '#4b5563'}
-                onMouseLeave={e => e.currentTarget.style.borderColor = '#2a2e35'}
-              >
-                {/* White Squircle */}
-                <div style={{
-                  width: 36, height: 36, background: '#fff', borderRadius: 8,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0
-                }}>
-                  <img src={a.icon} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }}
-                    onError={e => e.currentTarget.style.display = 'none'}
-                  />
-                </div>
-
-                {/* Text */}
-                <div>
-                  <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 2 }}>{a.int}</div>
-                  <div style={{ fontSize: 13, fontWeight: 500, color: '#fff' }}>{a.action}</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* ── Canvas Area ──────────────────────────────────────── */}
-      <div style={{ flex: 1, position: 'relative' }}>
-        
-        {/* Top Header Toggle & Breadcrumb */}
-        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 72, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 10 }}>
-          <div style={{ position: 'absolute', left: 24, pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: 12, color: '#e2e8f0', fontSize: 14, fontWeight: 500 }}>
-            <div style={{ width: 28, height: 28, background: '#fff', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <i className="fa-solid fa-code-branch" style={{ color: '#000', fontSize: 14 }} />
+              <button style={{ background: 'none', border: 'none', color: '#8891a8', cursor: 'pointer', padding: 4 }}>
+                <i className="fa-solid fa-arrow-right-to-bracket" style={{ fontSize: 14 }} />
+              </button>
             </div>
-            socrates-playground <span style={{color: '#9ca3af'}}>/</span> Create a Phishing Demo Case
-          </div>
-          
-          <div style={{ pointerEvents: 'auto', background: '#1c1e23', border: '1px solid #333842', borderRadius: 8, padding: 4, display: 'flex', gap: 4 }}>
-            <button 
-              onClick={() => setViewMode('designer')}
-              style={{ padding: '6px 20px', background: viewMode === 'designer' ? '#333842' : 'transparent', border: 'none', borderRadius: 6, color: viewMode === 'designer' ? '#fff' : '#9ca3af', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-              Designer
-            </button>
-            <button 
-              onClick={() => setViewMode('runlog')}
-              style={{ padding: '6px 20px', background: viewMode === 'runlog' ? '#333842' : 'transparent', border: 'none', borderRadius: 6, color: viewMode === 'runlog' ? '#fff' : '#9ca3af', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-              Run Log
-            </button>
-          </div>
-        </div>
 
-        {/* Run Log Left Sidebar Overlay */}
-        {viewMode === 'runlog' && (
-          <div className="animate-slide-in" style={{ position: 'absolute', left: 24, top: 88, bottom: 24, width: 340, background: '#1c1e23', border: '1px solid #333842', borderRadius: 12, zIndex: 10, display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 40px rgba(0,0,0,0.5)' }}>
+            {/* Tabs */}
+            <div style={{ display: 'flex', padding: '0 16px', borderBottom: '1px solid #2a2e35', marginBottom: 16, overflowX: 'auto' }}>
+              {[
+                { label: 'Public', count: 59, active: true },
+                { label: 'Cases', count: 0 },
+                { label: 'Utilities', count: 0 },
+                { label: 'Custom', count: 0 },
+              ].map(t => (
+                <div key={t.label} style={{
+                  flexShrink: 0,
+                  padding: '10px 10px', fontSize: 13, fontWeight: t.active ? 600 : 500,
+                  color: t.active ? '#fff' : '#6b7280', display: 'flex', alignItems: 'center', gap: 6,
+                  borderBottom: t.active ? '2px solid #fff' : '2px solid transparent',
+                  cursor: 'pointer',
+                }}>
+                  {t.label} <span style={{ background: t.active ? '#374151' : '#1f2937', padding: '2px 6px', borderRadius: 4, fontSize: 10, color: t.active ? '#fff' : '#9ca3af' }}>{t.count}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Action List */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {visible.map((a, i) => (
+                <div
+                  key={i}
+                  draggable
+                  onDragStart={(e) => onDragStart(e, a)}
+                  style={{
+                    background: '#0e1015', border: '1px solid #2a2e35', borderRadius: 6,
+                    padding: '12px', display: 'flex', alignItems: 'center', gap: 14,
+                    cursor: 'grab', transition: 'border-color .15s',
+                  }}
+                  onMouseEnter={e => e.currentTarget.style.borderColor = '#4b5563'}
+                  onMouseLeave={e => e.currentTarget.style.borderColor = '#2a2e35'}
+                >
+                  {/* White Squircle */}
+                  <div style={{
+                    width: 36, height: 36, background: '#fff', borderRadius: 8,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                    overflow: 'hidden'
+                  }}>
+                    <img src={getIntegrationLogo(a.n)} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }}
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none';
+                        const nextSibling = e.currentTarget.nextElementSibling as HTMLElement;
+                        if (nextSibling) nextSibling.style.display = 'inline-block';
+                      }}
+                    />
+                    <i className={a.fa} style={{ color: a.ic !== '#fff' && a.ic !== 'var(--text)' ? a.ic : '#333', fontSize: 18, display: 'none' }} />
+                  </div>
+
+                  {/* Text */}
+                  <div>
+                    <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 2 }}>{a.cat}</div>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: '#fff', lineHeight: 1.2 }}>{a.n}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div key="runlog" className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
             <div style={{ padding: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: '#fff', fontSize: 14, fontWeight: 600 }}>
               Today <RefreshCcw size={14} color="#9ca3af" style={{cursor: 'pointer'}} />
             </div>
@@ -206,24 +174,43 @@ export function CanvasPage() {
             </div>
           </div>
         )}
+      </div>
 
-        {/* Floating Bottom Toolbar */}
-        <div style={{ position: 'absolute', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: '#1c1e23', border: '1px solid #333842', borderRadius: 8, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 20, zIndex: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
-          <i className="fa-solid fa-magnifying-glass-minus" style={{ color: '#e2e8f0', fontSize: 16, cursor: 'pointer' }} />
-          <i className="fa-solid fa-magnifying-glass-plus" style={{ color: '#e2e8f0', fontSize: 16, cursor: 'pointer' }} />
-          <div style={{ width: 1, height: 24, background: '#333842' }} />
-          <i className="fa-solid fa-location-arrow" style={{ color: '#e2e8f0', fontSize: 16, cursor: 'pointer', transform: 'rotate(-45deg)', paddingRight: 4, marginTop: 4 }} />
-          <div style={{ width: 1, height: 24, background: '#333842' }} />
-          <i className="fa-solid fa-expand" style={{ color: '#e2e8f0', fontSize: 16, cursor: 'pointer' }} />
-          <i className="fa-solid fa-compress" style={{ color: '#e2e8f0', fontSize: 16, cursor: 'pointer' }} />
-          <div style={{ width: 1, height: 24, background: '#333842' }} />
-          <i className="fa-regular fa-keyboard" style={{ color: '#e2e8f0', fontSize: 18, cursor: 'pointer' }} />
-          <i className="fa-solid fa-magnifying-glass" style={{ color: '#e2e8f0', fontSize: 16, cursor: 'pointer' }} />
-        </div>
-
+      {/* ── Canvas Area ──────────────────────────────────────── */}
+      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
         <ReactFlowProvider>
-          <WorkflowCanvasWrapper addNode={addNode as any} />
+          <WorkflowCanvasWrapper addNode={addNode as any}>
+            {/* Top Header Toggle & Breadcrumb */}
+            <Panel position="top-left" style={{ margin: 0, width: '100%', pointerEvents: 'none', zIndex: 10 }}>
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 72, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ position: 'absolute', left: 24, pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: 12, color: '#e2e8f0', fontSize: 14, fontWeight: 500 }}>
+                  <div style={{ width: 28, height: 28, background: '#fff', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <i className="fa-solid fa-code-branch" style={{ color: '#000', fontSize: 14 }} />
+                  </div>
+                  socrates-playground <span style={{color: '#9ca3af'}}>/</span> Create a Phishing Demo Case
+                </div>
+                
+                <div style={{ pointerEvents: 'auto', background: '#1c1e23', border: '1px solid #333842', borderRadius: 8, padding: 4, display: 'flex', gap: 4 }}>
+                  <button 
+                    onClick={() => setViewMode('designer')}
+                    style={{ padding: '6px 20px', background: viewMode === 'designer' ? '#333842' : 'transparent', border: 'none', borderRadius: 6, color: viewMode === 'designer' ? '#fff' : '#9ca3af', fontSize: 13, fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s ease' }}>
+                    Designer
+                  </button>
+                  <button 
+                    onClick={() => setViewMode('runlog')}
+                    style={{ padding: '6px 20px', background: viewMode === 'runlog' ? '#333842' : 'transparent', border: 'none', borderRadius: 6, color: viewMode === 'runlog' ? '#fff' : '#9ca3af', fontSize: 13, fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s ease' }}>
+                    Run Log
+                  </button>
+                </div>
+              </div>
+            </Panel>
+
+            <Panel position="bottom-center" style={{ margin: 0, bottom: 24, zIndex: 10 }}>
+              <FloatingToolbarInner />
+            </Panel>
+          </WorkflowCanvasWrapper>
         </ReactFlowProvider>
+
       </div>
 
       {/* ── Properties Panel ─────────────────────────────────── */}
@@ -238,18 +225,38 @@ export function CanvasPage() {
   )
 }
 
-function WorkflowCanvasWrapper({ addNode }: { addNode: (node: any) => void }) {
+function WorkflowCanvasWrapper({ addNode, children }: { addNode: (node: any) => void, children?: React.ReactNode }) {
   const containerRef = useRef<HTMLDivElement>(null)
   
-  // Need to extract the hook 
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%' }}>
-      <DropZone addNode={addNode} />
+      <DropZone addNode={addNode}>
+        {children}
+      </DropZone>
     </div>
   )
 }
 
-function DropZone({ addNode }: { addNode: (node: any) => void }) {
+function FloatingToolbarInner() {
+  const { zoomIn, zoomOut, fitView } = useReactFlow()
+  
+  return (
+    <div style={{ background: '#1c1e23', border: '1px solid #333842', borderRadius: 8, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 20, boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
+      <i className="fa-solid fa-magnifying-glass-minus" onClick={() => zoomOut()} style={{ color: '#e2e8f0', fontSize: 16, cursor: 'pointer' }} />
+      <i className="fa-solid fa-magnifying-glass-plus" onClick={() => zoomIn()} style={{ color: '#e2e8f0', fontSize: 16, cursor: 'pointer' }} />
+      <div style={{ width: 1, height: 24, background: '#333842' }} />
+      <i className="fa-solid fa-location-arrow" style={{ color: '#e2e8f0', fontSize: 16, cursor: 'pointer', transform: 'rotate(-45deg)', paddingRight: 4, marginTop: 4 }} />
+      <div style={{ width: 1, height: 24, background: '#333842' }} />
+      <i className="fa-solid fa-expand" onClick={() => fitView()} style={{ color: '#e2e8f0', fontSize: 16, cursor: 'pointer' }} />
+      <i className="fa-solid fa-compress" onClick={() => fitView()} style={{ color: '#e2e8f0', fontSize: 16, cursor: 'pointer' }} />
+      <div style={{ width: 1, height: 24, background: '#333842' }} />
+      <i className="fa-regular fa-keyboard" style={{ color: '#e2e8f0', fontSize: 18, cursor: 'pointer' }} />
+      <i className="fa-solid fa-magnifying-glass" style={{ color: '#e2e8f0', fontSize: 16, cursor: 'pointer' }} />
+    </div>
+  )
+}
+
+function DropZone({ addNode, children }: { addNode: (node: any) => void, children?: React.ReactNode }) {
   const { screenToFlowPosition } = useReactFlow()
 
   const onDragOver = useCallback((e: React.DragEvent) => {
@@ -275,9 +282,9 @@ function DropZone({ addNode }: { addNode: (node: any) => void }) {
       type: 'step',
       position,
       data: { 
-        label: action.action, 
-        subtext: action.int,
-        iconUrl: action.icon 
+        label: action.n, 
+        subtext: action.cat,
+        iconUrl: getIntegrationLogo(action.n),
       },
     }
 
@@ -286,13 +293,16 @@ function DropZone({ addNode }: { addNode: (node: any) => void }) {
 
   return (
     <div style={{ width: '100%', height: '100%' }} onDragOver={onDragOver} onDrop={onDrop}>
-      <WorkflowCanvas />
+      <WorkflowCanvas>
+        {children}
+      </WorkflowCanvas>
     </div>
   )
 }
 
 function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => void }) {
   const isTrigger = node.type === 'trigger'
+  const { nodes, edges, setNodes, setEdges, selectNode } = useWorkflowStore()
   const [isHttpMode, setIsHttpMode] = useState(false)
   const [showHttpConfirm, setShowHttpConfirm] = useState(false)
   
@@ -316,8 +326,32 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingBottom: 12, color: '#9ca3af' }}>
           <button style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', display: 'flex' }}><i className="fa-solid fa-arrow-right-to-bracket" style={{ transform: 'rotate(180deg)' }} /></button>
-          <button style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', display: 'flex' }}><Copy size={14} /></button>
-          <button style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', display: 'flex' }}><Trash2 size={14} /></button>
+          <button 
+            onClick={() => {
+              const newNode = {
+                ...node,
+                id: `${node.type}-${Date.now()}`,
+                position: { x: node.position.x + 40, y: node.position.y + 40 },
+                selected: true,
+              }
+              const newNodes = nodes.map(n => ({ ...n, selected: false }))
+              setNodes([...newNodes, newNode])
+              selectNode(newNode)
+            }}
+            title="Duplicate Node"
+            style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', display: 'flex' }}>
+            <Copy size={14} />
+          </button>
+          <button 
+            onClick={() => {
+              setNodes(nodes.filter(n => n.id !== node.id))
+              setEdges(edges.filter(e => e.source !== node.id && e.target !== node.id))
+              selectNode(null)
+            }}
+            title="Delete Node"
+            style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', display: 'flex' }}>
+            <Trash2 size={14} />
+          </button>
           <button style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', display: 'flex' }}><MoreHorizontal size={14} /></button>
         </div>
       </div>

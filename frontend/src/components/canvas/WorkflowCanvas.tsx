@@ -1,4 +1,4 @@
-import { ReactFlow, Background, Controls, MiniMap } from '@xyflow/react'
+import { ReactFlow, Background, MiniMap } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import { TriggerNode } from './nodes/TriggerNode'
@@ -13,7 +13,7 @@ const nodeTypes = {
   ai: AINode,
 }
 
-export function WorkflowCanvas() {
+export function WorkflowCanvas({ children }: { children?: React.ReactNode }) {
   const { nodes, edges, onNodesChange, onEdgesChange, onConnect, selectNode } =
     useWorkflowStore()
 
@@ -22,6 +22,7 @@ export function WorkflowCanvas() {
       <ReactFlow
         nodes={nodes}
         edges={edges}
+        proOptions={{ hideAttribution: true }}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
@@ -36,31 +37,13 @@ export function WorkflowCanvas() {
           animated: true,
         }}
       >
+        {children}
         <Background
           variant={'dots' as any}
           gap={22}
           size={1}
           color="var(--border2)"
           style={{ background: 'var(--bg)' }}
-        />
-        <Controls
-          style={{
-            background: 'var(--bg2)',
-            border: '1px solid var(--border2)',
-            borderRadius: 8,
-          }}
-        />
-        <MiniMap
-          nodeColor={(n) => {
-            if (n.type === 'trigger') return 'var(--accent)'
-            if (n.type === 'ai') return 'var(--green)'
-            return 'var(--bg4)'
-          }}
-          style={{
-            background: 'var(--bg2)',
-            border: '1px solid var(--border2)',
-            borderRadius: 8,
-          }}
         />
       </ReactFlow>
     </div>

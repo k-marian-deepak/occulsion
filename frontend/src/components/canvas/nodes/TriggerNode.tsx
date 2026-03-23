@@ -11,12 +11,11 @@ export function TriggerNode({ data, selected }: NodeProps) {
       minWidth: 200,
       display: 'flex', alignItems: 'center', gap: 12,
       position: 'relative',
-      overflow: 'hidden',
       boxShadow: selected ? '0 0 0 2px rgba(255,255,255,0.1)' : '0 4px 12px rgba(0,0,0,0.5)',
       transition: 'all 0.15s ease',
     }}>
       {/* ── Left color bar ─────────────────────────────────── */}
-      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: '#fff' }} />
+      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, background: '#fff', borderTopLeftRadius: 5, borderBottomLeftRadius: 5 }} />
 
       {/* ── Icon Squircle ──────────────────────────────────── */}
       <div style={{
