@@ -1,4 +1,5 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { GitBranch } from 'lucide-react'
 
 export function StepNode({ data, selected }: NodeProps) {
   return (
@@ -16,15 +17,19 @@ export function StepNode({ data, selected }: NodeProps) {
       {/* ── Icon Squircle ──────────────────────────────────── */}
       <div style={{
         width: 32, height: 32, borderRadius: 8,
-        background: '#fff',
+        background: (data.iconBg as string) || '#fff',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         flexShrink: 0,
       }}>
-        <img
-          src={(data.iconUrl as string) || 'https://fav.farm/✨'}
-          alt=""
-          style={{ width: 16, height: 16, objectFit: 'contain' }}
-        />
+        {data.label === 'If' ? (
+          <GitBranch size={16} color={(data.iconColor as string) || '#000'} strokeWidth={2.5} />
+        ) : (
+          <img
+            src={(data.iconUrl as string) || 'https://fav.farm/✨'}
+            alt=""
+            style={{ width: 16, height: 16, objectFit: 'contain' }}
+          />
+        )}
       </div>
 
       {/* ── Text ───────────────────────────────────────────── */}
