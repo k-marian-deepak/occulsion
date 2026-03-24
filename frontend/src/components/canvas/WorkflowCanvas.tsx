@@ -6,7 +6,7 @@ import { StepNode } from './nodes/StepNode'
 import { OperatorNode } from './nodes/OperatorNode'
 import { AINode } from './nodes/AINode'
 
-const nodeTypes = {
+export const nodeTypes = {
   trigger: TriggerNode,
   step: StepNode,
   operator: OperatorNode,

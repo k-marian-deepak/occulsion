@@ -16,15 +16,17 @@ export function CanvasPage() {
   const urlMode = new URLSearchParams(location.search).get('mode')
   const [viewMode, setViewMode] = useState<'designer'|'runlog'>(urlMode === 'runlog' ? 'runlog' : 'designer')
 
-  // On mount, demo node matching Torq screenshot
+  // On mount, demo node matching Torq screenshot ONLY if canvas is empty
   useEffect(() => {
-    setNodes([{
-      id: 'n-1',
-      type: 'trigger',
-      position: { x: 350, y: 120 },
-      data: { label: 'On-demand' }
-    }] as any)
-    setEdges([])
+    if (useWorkflowStore.getState().nodes.length === 0) {
+      setNodes([{
+        id: 'n-1',
+        type: 'trigger',
+        position: { x: 350, y: 120 },
+        data: { label: 'On-demand' }
+      }] as any)
+      setEdges([])
+    }
   }, [])
 
   const onDragStart = (e: React.DragEvent, action: any) => {

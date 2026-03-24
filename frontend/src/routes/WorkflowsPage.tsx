@@ -2,7 +2,9 @@ import { useNavigate } from 'react-router-dom'
 import { Search, Plus, GitBranch, Download, X, Sparkles, Trash2, ChevronDown } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useWorkflowStore } from '@/stores/workflowStore'
-
+import { ReactFlow, Background } from '@xyflow/react'
+import '@xyflow/react/dist/style.css'
+import { nodeTypes } from '@/components/canvas/WorkflowCanvas'
 export function WorkflowsPage() {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
@@ -327,50 +329,23 @@ function AIModal({ onClose }: { onClose: () => void }) {
               )}
 
               {step === 'preview' && activeMock && (
-                <div className="animate-fade-in" style={{ position: 'relative', overflowY: 'auto', height: '100%', width: '100%' }}>
-                  <div style={{ position: 'absolute', top: 30, left: '50%', marginLeft: -300, width: 600, height: 800, transform: 'scale(0.65)', transformOrigin: 'top center' }}>
-                    <svg style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', pointerEvents: 'none', zIndex: 0 }}>
-                      {activeMock.edges.map(e => {
-                        const source = activeMock.nodes.find(n => n.id === e.source)
-                        const target = activeMock.nodes.find(n => n.id === e.target)
-                        if (!source || !target) return null;
-                        const srcIsOp = source.type === 'operator'
-                        const trgIsOp = target.type === 'operator'
-                        let sx = source.position.x + (srcIsOp ? 80 : 120);
-                        let sy = source.position.y + 48; // node height est
-                        if (e.sourceHandle === 'true') sx = source.position.x + 48; // 30%
-                        if (e.sourceHandle === 'false') sx = source.position.x + 112; // 70%
-
-                        const tx = target.position.x + (trgIsOp ? 80 : 120);
-                        const ty = target.position.y - 4; // slight top pad
-                        return (
-                          <g key={e.id}>
-                            <path d={`M ${sx} ${sy} C ${sx} ${sy + 45}, ${tx} ${ty - 45}, ${tx} ${ty}`} stroke="#4b5563" strokeWidth="2" fill="none" />
-                            {e.label && (
-                              <text x={(sx + tx) / 2} y={(sy + ty) / 2} fill="#9ca3af" fontSize="10" fontWeight="700" textAnchor="middle" dy="-4" style={{ background: '#1c1e23' }}>
-                                {e.label}
-                              </text>
-                            )}
-                          </g>
-                        )
-                      })}
-                    </svg>
-                    {activeMock.nodes.map(n => (
-                      <div key={n.id} style={{ 
-                        position: 'absolute', top: n.position.y, left: n.position.x, width: n.type === 'operator' ? 160 : 240,
-                        background: n.type === 'operator' ? '#1c1e23' : '#0e1015', border: n.type === 'operator' ? '1px solid rgba(245,158,11,0.2)' : '1px solid rgba(255,255,255,0.08)', borderRadius: n.type === 'operator' ? 10 : 6, padding: '10px 14px', display: 'flex', alignItems: 'center', gap: n.type === 'operator' ? 8 : 12,
-                        boxShadow: '0 4px 12px rgba(0,0,0,0.2)'
-                      }}>
-                        <div style={{ width: 28, height: 28, borderRadius: n.type === 'operator' ? 7 : 6, background: n.type === 'operator' ? 'rgba(245,158,11,0.1)' : n.data?.iconBg || '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', color: n.type === 'operator' ? '#f59e0b' : '#000' }}>
-                          {n.type === 'trigger' ? <i className="fa-solid fa-bolt" /> : n.type === 'operator' ? <i className="fa-solid fa-code-branch" /> : n.data?.iconUrl ? <img src={n.data?.iconUrl} style={{ width: 14 }} alt="" /> : <i className={`fa-solid ${n.data?.iconBg ? 'fa-code-branch' : 'fa-bolt'}`} style={{ color: n.data?.iconColor || '#000' }} />}
-                        </div>
-                        <div>
-                          <div style={{ fontSize: 10, color: n.type === 'operator' ? '#f59e0b' : 'rgba(255,255,255,0.6)', textTransform: n.type === 'operator' ? 'uppercase' : 'none', fontWeight: n.type === 'operator' ? 600 : 'normal', letterSpacing: n.type === 'operator' ? '0.06em' : 0 }}>{n.type === 'operator' ? 'Condition' : n.data?.subtext}</div>
-                          <div style={{ fontSize: 13, color: '#fff', fontWeight: 600 }}>{n.data?.label}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                <div className="animate-fade-in" style={{ position: 'absolute', inset: 0 }}>
+                  <ReactFlow
+                    nodes={activeMock.nodes as any}
+                    edges={activeMock.edges.map((e: any) => ({ ...e, style: e.style || { stroke: '#4b5563', strokeWidth: 1.5 }, animated: true })) as any}
+                    nodeTypes={nodeTypes}
+                    fitView
+                    proOptions={{ hideAttribution: true }}
+                    nodesDraggable={false}
+                    nodesConnectable={false}
+                    elementsSelectable={false}
+                    panOnDrag={false}
+                    panOnScroll={false}
+                    zoomOnScroll={false}
+                    zoomOnDoubleClick={false}
+                  >
+                    <Background variant={'dots' as any} gap={22} size={1} color="rgba(255,255,255,0.05)" style={{ background: 'transparent' }} />
+                  </ReactFlow>
                 </div>
               )}
               
