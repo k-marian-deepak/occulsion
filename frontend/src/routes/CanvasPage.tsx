@@ -100,6 +100,7 @@ export function CanvasPage() {
     nodes,
     edges,
     addNode,
+    selectNode,
     persistCurrentWorkflowGraph,
     selectedNode,
     currentWorkflowId,
@@ -154,7 +155,7 @@ export function CanvasPage() {
       id: 'AB-442279',
       timestamp: Date.now() - 5 * 60 * 60 * 1000,
       durationText: '9s',
-      status: 'success',
+      status: 'failed',
       mode: 'production',
       source: 'async-execution',
       executedBy: 'System',
@@ -372,6 +373,19 @@ export function CanvasPage() {
     })
     setActiveRunId(entry.id)
     setViewMode('runlog')
+  }
+
+  const openRunDetails = (entry: WorkflowRunEntry) => {
+    setActiveRunId(entry.id)
+
+    if (entry.status === 'failed' && entry.nodeLabel) {
+      const failedNode = nodes.find((item) =>
+        String(item.data?.label || '').toLowerCase().includes(entry.nodeLabel!.toLowerCase()),
+      )
+      if (failedNode) {
+        selectNode(failedNode as any)
+      }
+    }
   }
 
   const handleTestRun = (source: 'mock-output' | 'selected-step') => {
@@ -605,7 +619,7 @@ export function CanvasPage() {
                     section.entries.map((r) => (
                       <div
                         key={r.id}
-                        onClick={() => setActiveRunId(r.id)}
+                        onClick={() => openRunDetails(r)}
                         style={{ display: 'grid', gridTemplateColumns: '4px 1fr auto', padding: '12px 20px', alignItems: 'center', cursor: 'pointer', background: r.id === activeRunId ? '#2a2e35' : 'transparent', borderBottom: '1px solid #2a2e35' }}
                       >
                         <div style={{ width: 4, height: 24, background: r.status === 'success' ? '#22c55e' : '#ef4444', borderRadius: 2 }} />
@@ -658,6 +672,16 @@ export function CanvasPage() {
                     Run Log
                   </button>
                 </div>
+
+                {viewMode === 'runlog' && (() => {
+                  const activeRun = runLogEntries.find((item) => item.id === activeRunId)
+                  if (!activeRun || activeRun.status !== 'failed') return null
+                  return (
+                    <div style={{ position: 'absolute', top: 48, left: '50%', transform: 'translateX(-50%)', pointerEvents: 'none', background: 'rgba(127,29,29,0.9)', border: '1px solid #b91c1c', borderRadius: 999, color: '#fecaca', fontSize: 11, fontWeight: 600, padding: '6px 12px' }}>
+                      Failed step highlighted: {activeRun.nodeLabel || 'Unknown step'}
+                    </div>
+                  )
+                })()}
 
                 <div style={{ position: 'absolute', right: 24, pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
                   <select
@@ -1136,9 +1160,16 @@ function WorkflowCanvasWrapper({
 
 function FloatingToolbarInner() {
   const { zoomIn, zoomOut, fitView } = useReactFlow()
+  const { nodes, selectNode } = useWorkflowStore()
+  const [showSearch, setShowSearch] = useState(false)
+  const [searchTerm, setSearchTerm] = useState('')
+
+  const filteredNodes = nodes.filter((node) =>
+    String(node.data?.label || '').toLowerCase().includes(searchTerm.toLowerCase()),
+  )
   
   return (
-    <div style={{ background: '#1c1e23', border: '1px solid #333842', borderRadius: 8, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 20, boxShadow: '0 8px 24px rgba(0,0,0,0.5)' }}>
+    <div style={{ background: '#1c1e23', border: '1px solid #333842', borderRadius: 8, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 20, boxShadow: '0 8px 24px rgba(0,0,0,0.5)', position: 'relative' }}>
       <i className="fa-solid fa-magnifying-glass-minus" onClick={() => zoomOut()} style={{ color: '#e2e8f0', fontSize: 16, cursor: 'pointer' }} />
       <i className="fa-solid fa-magnifying-glass-plus" onClick={() => zoomIn()} style={{ color: '#e2e8f0', fontSize: 16, cursor: 'pointer' }} />
       <div style={{ width: 1, height: 24, background: '#333842' }} />
@@ -1148,7 +1179,35 @@ function FloatingToolbarInner() {
       <i className="fa-solid fa-compress" onClick={() => fitView()} style={{ color: '#e2e8f0', fontSize: 16, cursor: 'pointer' }} />
       <div style={{ width: 1, height: 24, background: '#333842' }} />
       <i className="fa-regular fa-keyboard" style={{ color: '#e2e8f0', fontSize: 18, cursor: 'pointer' }} />
-      <i className="fa-solid fa-magnifying-glass" style={{ color: '#e2e8f0', fontSize: 16, cursor: 'pointer' }} />
+      <i className="fa-solid fa-magnifying-glass" onClick={() => setShowSearch((prev) => !prev)} style={{ color: '#e2e8f0', fontSize: 16, cursor: 'pointer' }} />
+
+      {showSearch && (
+        <div style={{ position: 'absolute', bottom: 52, right: 0, width: 280, background: '#252830', border: '1px solid #333842', borderRadius: 8, boxShadow: '0 16px 40px rgba(0,0,0,0.45)', padding: 10 }}>
+          <input
+            value={searchTerm}
+            onChange={(event) => setSearchTerm(event.target.value)}
+            placeholder="Search step"
+            style={{ width: '100%', marginBottom: 8, background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '8px 10px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
+          />
+          <div style={{ maxHeight: 180, overflowY: 'auto' }}>
+            {filteredNodes.slice(0, 8).map((node) => (
+              <button
+                key={node.id}
+                onClick={() => {
+                  selectNode(node as any)
+                  setShowSearch(false)
+                }}
+                style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '8px', cursor: 'pointer', fontSize: 12 }}
+              >
+                {String(node.data?.label || node.id)}
+              </button>
+            ))}
+            {searchTerm && filteredNodes.length === 0 && (
+              <div style={{ color: '#6b7280', fontSize: 11, padding: '6px 8px' }}>No matching step</div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
