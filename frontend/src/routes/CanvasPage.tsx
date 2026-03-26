@@ -1123,18 +1123,56 @@ function buildContextToken(path: string) {
   return `{{ ${path} }}`
 }
 
+const DEFAULT_RAW_DATA_INPUT = '"\nan\nexample\n"'
+const DEFAULT_ADD_TO_JSON_INPUT = '{"data":"{{ jsonescape $.raw_data.output }}"}'
+
+function jsonEscapeInlineValue(value: string) {
+  return JSON.stringify(value).slice(1, -1)
+}
+
+function buildAddToJsonPreview(input: string, rawData: string) {
+  const withEscapedRawData = input.replace(
+    /\{\{\s*jsonescape\s+[^}]+\}\}/gi,
+    jsonEscapeInlineValue(rawData),
+  )
+
+  const withContextValues = withEscapedRawData.replace(
+    /\{\{\s*[^}]+\}\}/g,
+    '"context_value"',
+  )
+
+  try {
+    const parsed = JSON.parse(withContextValues)
+    return {
+      isValid: true,
+      preview: JSON.stringify(parsed, null, 2),
+      error: '',
+    }
+  } catch (error) {
+    return {
+      isValid: false,
+      preview: withContextValues,
+      error: error instanceof Error ? error.message : 'Invalid JSON input',
+    }
+  }
+}
+
 function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => void }) {
   const isTrigger = node.type === 'trigger'
   const isMessageLikeStep = /message|slack|ticket|log/i.test(String(node.data?.label || ''))
+  const isRawDataStep = /raw data/i.test(String(node.data?.label || ''))
+  const isAddToJsonStep = /add to json/i.test(String(node.data?.label || ''))
   const { nodes, edges, setNodes, setEdges, selectNode, persistCurrentWorkflowGraph } = useWorkflowStore()
   const [isHttpMode, setIsHttpMode] = useState(false)
   const [showHttpConfirm, setShowHttpConfirm] = useState(false)
   const [recipient, setRecipient] = useState(String(node.data?.recipient || ''))
   const [messageText, setMessageText] = useState(String(node.data?.messageText || ''))
-  const [activeField, setActiveField] = useState<'recipient' | 'message' | null>(null)
-  const [pickerOpenFor, setPickerOpenFor] = useState<'recipient' | 'message' | null>(null)
+  const [rawDataInput, setRawDataInput] = useState(String(node.data?.rawDataInput || DEFAULT_RAW_DATA_INPUT))
+  const [addJsonInput, setAddJsonInput] = useState(String(node.data?.addJsonInput || DEFAULT_ADD_TO_JSON_INPUT))
+  const [activeField, setActiveField] = useState<'recipient' | 'message' | 'addjson' | null>(null)
+  const [pickerOpenFor, setPickerOpenFor] = useState<'recipient' | 'message' | 'addjson' | null>(null)
   const [autocomplete, setAutocomplete] = useState<{
-    field: 'recipient' | 'message'
+    field: 'recipient' | 'message' | 'addjson'
     start: number
     end: number
     query: string
@@ -1142,6 +1180,7 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   } | null>(null)
   const recipientRef = useRef<HTMLInputElement | null>(null)
   const messageRef = useRef<HTMLTextAreaElement | null>(null)
+  const addJsonRef = useRef<HTMLTextAreaElement | null>(null)
 
   const contextQuery = (autocomplete?.query || '').toLowerCase()
   const filteredContextPaths = WORKFLOW_CONTEXT_PATHS.filter((item) =>
@@ -1169,7 +1208,7 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   }
 
   const updateAutocomplete = (
-    field: 'recipient' | 'message',
+    field: 'recipient' | 'message' | 'addjson',
     value: string,
     caretPosition: number,
   ) => {
@@ -1181,12 +1220,18 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
     setAutocomplete({ field, ...context })
   }
 
-  const applyContextPath = (path: string, targetField?: 'recipient' | 'message') => {
+  const applyContextPath = (path: string, targetField?: 'recipient' | 'message' | 'addjson') => {
     const field = targetField || autocomplete?.field || activeField
     if (!field) return
 
-    const sourceValue = field === 'recipient' ? recipient : messageText
-    const inputRef = field === 'recipient' ? recipientRef.current : messageRef.current
+    const sourceValue =
+      field === 'recipient' ? recipient : field === 'message' ? messageText : addJsonInput
+    const inputRef =
+      field === 'recipient'
+        ? recipientRef.current
+        : field === 'message'
+        ? messageRef.current
+        : addJsonRef.current
     const fallbackCursor = inputRef?.selectionStart ?? sourceValue.length
     const context = autocomplete?.field === field ? autocomplete : findContextTokenContext(sourceValue, fallbackCursor)
 
@@ -1204,13 +1249,23 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
         recipientRef.current?.setSelectionRange(nextCursor, nextCursor)
       }, 0)
     } else {
-      setMessageText(nextValue)
-      persistNodeData({ messageText: nextValue })
-      setTimeout(() => {
-        messageRef.current?.focus()
-        const nextCursor = start + replacement.length
-        messageRef.current?.setSelectionRange(nextCursor, nextCursor)
-      }, 0)
+      if (field === 'message') {
+        setMessageText(nextValue)
+        persistNodeData({ messageText: nextValue })
+        setTimeout(() => {
+          messageRef.current?.focus()
+          const nextCursor = start + replacement.length
+          messageRef.current?.setSelectionRange(nextCursor, nextCursor)
+        }, 0)
+      } else {
+        setAddJsonInput(nextValue)
+        persistNodeData({ addJsonInput: nextValue })
+        setTimeout(() => {
+          addJsonRef.current?.focus()
+          const nextCursor = start + replacement.length
+          addJsonRef.current?.setSelectionRange(nextCursor, nextCursor)
+        }, 0)
+      }
     }
 
     setAutocomplete(null)
@@ -1225,6 +1280,8 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   useEffect(() => {
     setRecipient(String(node.data?.recipient || ''))
     setMessageText(String(node.data?.messageText || ''))
+    setRawDataInput(String(node.data?.rawDataInput || DEFAULT_RAW_DATA_INPUT))
+    setAddJsonInput(String(node.data?.addJsonInput || DEFAULT_ADD_TO_JSON_INPUT))
     setAutocomplete(null)
     setActiveField(null)
     setPickerOpenFor(null)
@@ -1548,6 +1605,128 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                 <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.5 }}>
                   Use workflow context in inputs: <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ $.event.user.firstName }}'}</span> or <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ $.metadata.execution_id }}'}</span>
                 </div>
+              </>
+            ) : isRawDataStep ? (
+              <>
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>INPUT</div>
+                  <textarea
+                    value={rawDataInput}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      setRawDataInput(value)
+                      persistNodeData({ rawDataInput: value })
+                    }}
+                    style={{ width: '100%', minHeight: 220, background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none', resize: 'vertical', fontFamily: 'monospace', whiteSpace: 'pre' }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.5 }}>
+                  Raw data can include quotes and whitespace. Use <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ jsonescape $.raw_data.output }}'}</span> in downstream JSON steps.
+                </div>
+              </>
+            ) : isAddToJsonStep ? (
+              <>
+                <div style={{ marginBottom: 16, position: 'relative' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span>INPUT</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <button
+                        onClick={() => {
+                          setAddJsonInput(DEFAULT_ADD_TO_JSON_INPUT)
+                          persistNodeData({ addJsonInput: DEFAULT_ADD_TO_JSON_INPUT })
+                        }}
+                        style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}
+                      >
+                        <i className="fa-solid fa-wand-magic-sparkles" /> jsonescape
+                      </button>
+                      <button
+                        onClick={() => setPickerOpenFor((prev) => (prev === 'addjson' ? null : 'addjson'))}
+                        style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}
+                      >
+                        <Plus size={12} /> Context
+                      </button>
+                    </div>
+                  </div>
+
+                  <textarea
+                    ref={addJsonRef}
+                    value={addJsonInput}
+                    onFocus={() => setActiveField('addjson')}
+                    onBlur={() => setTimeout(() => setActiveField((prev) => (prev === 'addjson' ? null : prev)), 120)}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      const caret = event.target.selectionStart ?? value.length
+                      setAddJsonInput(value)
+                      persistNodeData({ addJsonInput: value })
+                      updateAutocomplete('addjson', value, caret)
+                    }}
+                    onKeyUp={(event) => {
+                      const target = event.currentTarget
+                      updateAutocomplete('addjson', target.value, target.selectionStart ?? target.value.length)
+                    }}
+                    style={{ width: '100%', minHeight: 220, background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
+                  />
+
+                  {autocomplete && autocomplete.field === 'addjson' && activeField === 'addjson' && filteredContextPaths.length > 0 && (
+                    <div style={{ position: 'absolute', left: 0, right: 0, top: 72, background: '#252830', border: '1px solid #333842', borderRadius: 8, zIndex: 30, boxShadow: '0 16px 40px rgba(0,0,0,0.45)', maxHeight: 230, overflowY: 'auto' }}>
+                      {filteredContextPaths.map((item) => (
+                        <button
+                          key={item.path}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => applyContextPath(item.path, 'addjson')}
+                          style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '10px 12px', cursor: 'pointer', fontSize: 13 }}
+                        >
+                          <i className="fa-regular fa-tag" style={{ marginRight: 8, color: '#9ca3af' }} />
+                          {item.path}
+                          <span style={{ marginLeft: 8, color: '#94a3b8', fontSize: 11 }}>{item.group}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {pickerOpenFor === 'addjson' && (
+                    <div style={{ position: 'absolute', left: 0, right: 0, top: 72, background: '#252830', border: '1px solid #333842', borderRadius: 8, zIndex: 35, boxShadow: '0 16px 40px rgba(0,0,0,0.45)', maxHeight: 260, overflowY: 'auto' }}>
+                      {WORKFLOW_CONTEXT_PATHS.map((item) => (
+                        <button
+                          key={item.path}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => applyContextPath(item.path, 'addjson')}
+                          style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '10px 12px', cursor: 'pointer', fontSize: 12 }}
+                        >
+                          <div style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{item.path}</div>
+                          <div style={{ color: '#94a3b8', fontSize: 11 }}>{item.description}</div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {(() => {
+                  const preview = buildAddToJsonPreview(addJsonInput, rawDataInput)
+                  return (
+                    <>
+                      <div
+                        style={{
+                          marginBottom: 10,
+                          padding: '10px 12px',
+                          borderRadius: 6,
+                          border: `1px solid ${preview.isValid ? '#14532d' : '#7f1d1d'}`,
+                          background: preview.isValid ? 'rgba(20,83,45,0.25)' : 'rgba(127,29,29,0.25)',
+                          color: preview.isValid ? '#86efac' : '#fca5a5',
+                          fontSize: 12,
+                        }}
+                      >
+                        {preview.isValid
+                          ? 'JSON preview is valid. Escaped characters will be preserved safely.'
+                          : `Invalid JSON input: ${preview.error}`}
+                      </div>
+                      <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.5 }}>
+                        Recommended format: <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{"data":"{{ jsonescape $.raw_data.output }}"}'}</span>
+                      </div>
+                    </>
+                  )
+                })()}
               </>
             ) : (
               <>
