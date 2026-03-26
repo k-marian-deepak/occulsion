@@ -58,6 +58,35 @@ const TEST_TRIGGER_EVENTS = [
   { id: 'evt-3', label: 'Previous trigger event - Endpoint malware detection' },
 ]
 
+const TRIGGER_EXECUTION_TYPES = [
+  {
+    id: 'webhook',
+    label: 'Webhook URL',
+    description: 'Trigger all workflows with this trigger integration.',
+  },
+  {
+    id: 'async',
+    label: 'Asynchronous URL',
+    description: 'Trigger only this workflow and return execution ID immediately.',
+  },
+  {
+    id: 'sync',
+    label: 'Synchronous URL',
+    description: 'Trigger this workflow and return workflow output in HTTP response.',
+  },
+] as const
+
+const EXECUTION_RESPONSE_CODES = [
+  '200 Success',
+  '201 Execution in progress',
+  '400 Invalid integration/workflow/header',
+  '401 Invalid HMAC signature',
+  '404 Integration/workflow/execution not found',
+  '413 Payload too large',
+  '429 Rate limit exceeded (25/sec)',
+  '500 Internal error',
+]
+
 const RUN_SOURCE_LABEL: Record<WorkflowRunEntry['source'], string> = {
   'mock-output': 'Mock outputs',
   'selected-step': 'From selected step',
@@ -90,6 +119,17 @@ function buildRunEntry(partial: Omit<WorkflowRunEntry, 'id' | 'timestamp' | 'dur
     durationText: `${Math.floor(5 + Math.random() * 70)}s`,
     status: 'success',
     ...partial,
+  }
+}
+
+function buildTriggerUrls(baseHookUrl: string, workflowId: string) {
+  const normalizedBase = baseHookUrl.endsWith('/') ? baseHookUrl.slice(0, -1) : baseHookUrl
+  const asyncUrl = `${normalizedBase}/workflows/${workflowId}`
+  const syncUrl = `${asyncUrl}/sync`
+  return {
+    webhook: normalizedBase,
+    async: asyncUrl,
+    sync: syncUrl,
   }
 }
 
@@ -2191,6 +2231,8 @@ function renderAdvancedTemplatePreview(template: string, urlSource: string) {
 function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => void }) {
   const stepDescriptor = `${String(node.data?.label || '')} ${String(node.data?.subtext || '')}`
   const isTrigger = node.type === 'trigger'
+  const isWebhookTrigger = isTrigger && /webhook/i.test(stepDescriptor)
+  const isExitOperator = /\bexit\b/i.test(String(node.data?.label || ''))
   const isMessageLikeStep = /message|slack|ticket|log/i.test(String(node.data?.label || ''))
   const isEmailStep = /gmail|email/i.test(String(node.data?.subtext || '')) || /email|gmail/i.test(String(node.data?.label || ''))
   const isDateTimeStep = /date|time|datetime|timestamp/i.test(String(node.data?.label || ''))
@@ -2202,12 +2244,16 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const isEscapeJsonStep = /escape json|string utils|escaped string/i.test(String(node.data?.label || ''))
   const isPythonStep = /python/i.test(String(node.data?.label || ''))
   const isSprigFunctionStep = /sprig|function|dynamic data|manipulation/i.test(String(node.data?.label || ''))
-  const { nodes, edges, setNodes, setEdges, selectNode, persistCurrentWorkflowGraph } = useWorkflowStore()
+  const { nodes, edges, setNodes, setEdges, selectNode, persistCurrentWorkflowGraph, currentWorkflowId } = useWorkflowStore()
   const [panelTab, setPanelTab] = useState<'properties' | 'execution' | 'mock'>('properties')
   const [executionTab, setExecutionTab] = useState<'output' | 'input' | 'debug'>('output')
+  const [triggerExecutionType, setTriggerExecutionType] = useState<'webhook' | 'async' | 'sync'>(String(node.data?.triggerExecutionType || 'webhook') as 'webhook' | 'async' | 'sync')
   const [mockOutputEnabled, setMockOutputEnabled] = useState(Boolean(node.data?.mockOutputEnabled))
   const [mockOutputText, setMockOutputText] = useState(String(node.data?.mockOutputText || buildMockOutputExample(String(node.data?.label || ''))))
   const [mockMenuOpen, setMockMenuOpen] = useState(false)
+  const [syncStatusCode, setSyncStatusCode] = useState(String(node.data?.syncStatusCode || '200'))
+  const [syncHeaders, setSyncHeaders] = useState(String(node.data?.syncHeaders || '{\n  "Content-Type": "application/json"\n}'))
+  const [syncBody, setSyncBody] = useState(String(node.data?.syncBody || '{\n  "result": "{{ $.print_a_message_to_stdout.output }}"\n}'))
   const [isHttpMode, setIsHttpMode] = useState(false)
   const [showHttpConfirm, setShowHttpConfirm] = useState(false)
   const [recipient, setRecipient] = useState(String(node.data?.recipient || ''))
@@ -2259,6 +2305,11 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   )
   const selectedPythonVariant =
     PYTHON_STEP_VARIANTS.find((item) => item.id === pythonStepVariant) || PYTHON_STEP_VARIANTS[0]
+  const triggerUrls = buildTriggerUrls(
+    String(node.data?.triggerBaseUrl || 'https://hooks.torq.io/v1/webhooks/af6aab8d-0000-0000-0000-74259a93b18f'),
+    String(currentWorkflowId || '710c5349-b617-0000-0000-e15671ca4ffb'),
+  )
+  const selectedTriggerInfo = TRIGGER_EXECUTION_TYPES.find((item) => item.id === triggerExecutionType) || TRIGGER_EXECUTION_TYPES[0]
   const mockOutputHasTemplate = /\{\{[\s\S]*\}\}/.test(mockOutputText)
   const mockOutputTooLarge = new Blob([mockOutputText]).size > 100 * 1024
   const mockOutputJsonValid = (() => {
@@ -2436,9 +2487,13 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
     setExpandedCategory('String Manipulation')
     setPanelTab('properties')
     setExecutionTab('output')
+    setTriggerExecutionType(String(node.data?.triggerExecutionType || 'webhook') as 'webhook' | 'async' | 'sync')
     setMockOutputEnabled(Boolean(node.data?.mockOutputEnabled))
     setMockOutputText(String(node.data?.mockOutputText || buildMockOutputExample(String(node.data?.label || ''))))
     setMockMenuOpen(false)
+    setSyncStatusCode(String(node.data?.syncStatusCode || '200'))
+    setSyncHeaders(String(node.data?.syncHeaders || '{\n  "Content-Type": "application/json"\n}'))
+    setSyncBody(String(node.data?.syncBody || '{\n  "result": "{{ $.print_a_message_to_stdout.output }}"\n}'))
     setAutocomplete(null)
     setActiveField(null)
     setPickerOpenFor(null)
@@ -2644,7 +2699,101 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
           </div>
         ) : (
           <div>
-            {isMessageLikeStep ? (
+            {isWebhookTrigger ? (
+              <>
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Select trigger execution type</div>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {TRIGGER_EXECUTION_TYPES.map((option) => (
+                      <button
+                        key={option.id}
+                        onClick={() => {
+                          setTriggerExecutionType(option.id)
+                          persistNodeData({ triggerExecutionType: option.id })
+                        }}
+                        style={{ background: triggerExecutionType === option.id ? '#334155' : '#17191e', border: '1px solid #333842', borderRadius: 6, color: '#e2e8f0', padding: '8px 10px', textAlign: 'left', cursor: 'pointer' }}
+                      >
+                        <div style={{ fontSize: 12, fontWeight: 600 }}>{option.label}</div>
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{option.description}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>{selectedTriggerInfo.label}</div>
+                  <div style={{ background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                    {triggerUrls[triggerExecutionType]}
+                  </div>
+                  <div style={{ marginTop: 10, display: 'flex', justifyContent: 'flex-end' }}>
+                    <button onClick={() => copyText(triggerUrls[triggerExecutionType])} style={{ background: '#17191e', border: '1px solid #333842', color: '#e2e8f0', borderRadius: 6, padding: '6px 10px', fontSize: 11, cursor: 'pointer' }}>
+                      <i className="fa-regular fa-copy" style={{ marginRight: 6 }} /> Copy URL
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.6 }}>
+                  <strong style={{ color: '#e2e8f0' }}>cURL example</strong><br />
+                  <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{`curl ${triggerUrls[triggerExecutionType]} -H "auth_header_name:secret" -d '{"body":[1,2,3]}'`}</span>
+                </div>
+              </>
+            ) : isExitOperator ? (
+              <>
+                <div style={{ marginBottom: 12, color: '#9ca3af', fontSize: 12, lineHeight: 1.5 }}>
+                  These parameters affect synchronous trigger HTTP response only: <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>status</span>, <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>headers</span>, <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>body</span>.
+                </div>
+
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>status</div>
+                  <input
+                    value={syncStatusCode}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      setSyncStatusCode(value)
+                      persistNodeData({ syncStatusCode: value })
+                    }}
+                    placeholder="200"
+                    style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>headers (JSON)</div>
+                  <textarea
+                    value={syncHeaders}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      setSyncHeaders(value)
+                      persistNodeData({ syncHeaders: value })
+                    }}
+                    style={{ width: '100%', minHeight: 120, background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>body</div>
+                  <textarea
+                    value={syncBody}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      setSyncBody(value)
+                      persistNodeData({ syncBody: value })
+                    }}
+                    style={{ width: '100%', minHeight: 120, background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.6 }}>
+                  <strong style={{ color: '#e2e8f0' }}>Supported Content-Types</strong><br />
+                  application/json, text/csv, text/plain, text/html, text/xml
+                </div>
+
+                <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.6 }}>
+                  <strong style={{ color: '#e2e8f0' }}>Troubleshooting</strong><br />
+                  {EXECUTION_RESPONSE_CODES.join(' • ')}
+                </div>
+              </>
+            ) : isMessageLikeStep ? (
               <>
                 <div style={{ marginBottom: 16, position: 'relative' }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
