@@ -55,6 +55,7 @@ export function CanvasPage() {
     publishCurrentWorkflow,
     exportWorkflowYaml,
     unpublishWorkflow,
+    runWorkflowExecution,
     renameWorkflowVersion,
     restoreWorkflowVersion,
     saveWorkflowVersionAsWorkflow,
@@ -89,7 +90,7 @@ export function CanvasPage() {
       : 'Not published'
 
   const saveDraft = () => {
-    saveCurrentWorkflowDraft(currentWorkflow?.name || 'Untitled workflow')
+    return saveCurrentWorkflowDraft(currentWorkflow?.name || 'Untitled workflow')
   }
 
   const openVersionHistory = () => {
@@ -197,7 +198,10 @@ export function CanvasPage() {
   }
   
   const handleRunWorkflow = () => {
-    saveDraft()
+    const workflowId = saveDraft()
+    if (workflowId) {
+      runWorkflowExecution(workflowId)
+    }
     addCase({
       id: `cw-${Date.now()}`,
       state: 'new',

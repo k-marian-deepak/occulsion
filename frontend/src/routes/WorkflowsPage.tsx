@@ -47,6 +47,7 @@ export function WorkflowsPage() {
     publishCurrentWorkflow,
     exportWorkflowYaml,
     importWorkflowYaml,
+    stopWorkflowExecutions,
   } = useWorkflowStore()
 
   const downloadYaml = (filename: string, content: string) => {
@@ -213,7 +214,7 @@ export function WorkflowsPage() {
                     </span>
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--text2)' }}>
-                    Updated {new Date(workflow.updatedAt).toLocaleString()} • {workflow.nodes.length} nodes
+                    Updated {new Date(workflow.updatedAt).toLocaleString()} • {workflow.nodes.length} nodes • Active: {workflow.activeExecutions} • Last 7d: {workflow.executionsLast7d}
                   </div>
                 </div>
 
@@ -281,6 +282,16 @@ export function WorkflowsPage() {
                           style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '10px 12px', cursor: 'pointer' }}
                         >
                           <i className="fa-solid fa-arrow-up-from-bracket" style={{ marginRight: 8 }} /> Export published
+                        </button>
+                        <button
+                          onClick={() => {
+                            stopWorkflowExecutions(workflow.id)
+                            setRowMenuWorkflowId(null)
+                          }}
+                          style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '10px 12px', cursor: workflow.activeExecutions > 0 ? 'pointer' : 'not-allowed', opacity: workflow.activeExecutions > 0 ? 1 : 0.5 }}
+                          disabled={workflow.activeExecutions === 0}
+                        >
+                          <i className="fa-solid fa-hand" style={{ marginRight: 8 }} /> Stop executions
                         </button>
                       </div>
                     )}

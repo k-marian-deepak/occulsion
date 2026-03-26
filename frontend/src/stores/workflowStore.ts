@@ -36,6 +36,8 @@ export interface WorkflowItem {
   publishedNodes?: Node[]
   publishedEdges?: Edge[]
   versions: WorkflowVersion[]
+  activeExecutions: number
+  executionsLast7d: number
 }
 
 export interface WorkflowVersion {
@@ -71,6 +73,8 @@ interface WorkflowStore {
   }) => string | null
   unpublishWorkflow: (id: string) => void
   setWorkflowTriggerEnabled: (id: string, enabled: boolean) => void
+  runWorkflowExecution: (id: string) => void
+  stopWorkflowExecutions: (id: string) => void
   openWorkflowInCanvas: (id: string) => void
   renameWorkflowVersion: (workflowId: string, versionId: string, name: string) => void
   restoreWorkflowVersion: (workflowId: string, versionId: string) => void
@@ -158,6 +162,8 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
           edges: get().edges,
         }),
       ],
+      activeExecutions: 0,
+      executionsLast7d: 0,
     }
     set({
       workflows: [draft, ...get().workflows],
@@ -276,6 +282,35 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     })
   },
 
+  runWorkflowExecution: (id) => {
+    set({
+      workflows: get().workflows.map((workflow) =>
+        workflow.id === id
+          ? {
+              ...workflow,
+              activeExecutions: workflow.activeExecutions + 1,
+              executionsLast7d: workflow.executionsLast7d + 1,
+              updatedAt: new Date().toISOString(),
+            }
+          : workflow,
+      ),
+    })
+  },
+
+  stopWorkflowExecutions: (id) => {
+    set({
+      workflows: get().workflows.map((workflow) =>
+        workflow.id === id
+          ? {
+              ...workflow,
+              activeExecutions: 0,
+              updatedAt: new Date().toISOString(),
+            }
+          : workflow,
+      ),
+    })
+  },
+
   openWorkflowInCanvas: (id) => {
     const workflow = get().workflows.find((item) => item.id === id)
     if (!workflow) return
@@ -378,6 +413,8 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
           edges: version.edges,
         }),
       ],
+      activeExecutions: 0,
+      executionsLast7d: 0,
     }
 
     set({ workflows: [newWorkflow, ...get().workflows] })
@@ -440,6 +477,8 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
           edges: parsed.edges,
         }),
       ],
+      activeExecutions: 0,
+      executionsLast7d: 0,
     })
 
     if (!conflict) {
