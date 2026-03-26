@@ -2428,6 +2428,10 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const [executionTab, setExecutionTab] = useState<'output' | 'input' | 'debug'>('output')
   const [triggerInspectorTab, setTriggerInspectorTab] = useState<'trigger' | 'event-log'>(String(node.data?.triggerInspectorTab || 'trigger') as 'trigger' | 'event-log')
   const [triggerType, setTriggerType] = useState<(typeof TRIGGER_TYPE_OPTIONS)[number]['id']>(String(node.data?.triggerType || 'on-demand') as (typeof TRIGGER_TYPE_OPTIONS)[number]['id'])
+  const availableTriggerIntegrations = DB.filter((item) => item.t !== 'step').map((item) => item.n)
+  const [triggerIntegrationName, setTriggerIntegrationName] = useState(String(node.data?.triggerIntegrationName || availableTriggerIntegrations[0] || 'Okta'))
+  const [triggerIntegrationInstance, setTriggerIntegrationInstance] = useState(String(node.data?.triggerIntegrationInstance || `${String(node.data?.triggerIntegrationName || availableTriggerIntegrations[0] || 'Okta').replace(/\s+/g, '_')}_Demo`))
+  const [triggerAcceptRawHttp, setTriggerAcceptRawHttp] = useState(Boolean(node.data?.triggerAcceptRawHttp))
   const [triggeredFrom, setTriggeredFrom] = useState<'anywhere' | 'nested-only'>(String(node.data?.triggeredFrom || 'anywhere') as 'anywhere' | 'nested-only')
   const [triggerExposeInCases, setTriggerExposeInCases] = useState(Boolean(node.data?.triggerExposeInCases))
   const [triggerConditionJoin, setTriggerConditionJoin] = useState<'AND' | 'OR'>(String(node.data?.triggerConditionJoin || 'AND') as 'AND' | 'OR')
@@ -2770,6 +2774,9 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
     setExecutionTab('output')
     setTriggerInspectorTab(String(node.data?.triggerInspectorTab || 'trigger') as 'trigger' | 'event-log')
     setTriggerType(String(node.data?.triggerType || 'on-demand') as (typeof TRIGGER_TYPE_OPTIONS)[number]['id'])
+    setTriggerIntegrationName(String(node.data?.triggerIntegrationName || availableTriggerIntegrations[0] || 'Okta'))
+    setTriggerIntegrationInstance(String(node.data?.triggerIntegrationInstance || `${String(node.data?.triggerIntegrationName || availableTriggerIntegrations[0] || 'Okta').replace(/\s+/g, '_')}_Demo`))
+    setTriggerAcceptRawHttp(Boolean(node.data?.triggerAcceptRawHttp))
     setTriggeredFrom(String(node.data?.triggeredFrom || 'anywhere') as 'anywhere' | 'nested-only')
     setTriggerExposeInCases(Boolean(node.data?.triggerExposeInCases))
     setTriggerConditionJoin(String(node.data?.triggerConditionJoin || 'AND') as 'AND' | 'OR')
@@ -3147,7 +3154,11 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                           const currentIndex = TRIGGER_TYPE_OPTIONS.findIndex((option) => option.id === triggerType)
                           const nextOption = TRIGGER_TYPE_OPTIONS[(currentIndex + 1) % TRIGGER_TYPE_OPTIONS.length]
                           setTriggerType(nextOption.id)
-                          persistNodeData({ triggerType: nextOption.id, label: nextOption.label.replace(' trigger', '') })
+                          if (nextOption.id === 'integration') {
+                            persistNodeData({ triggerType: nextOption.id, label: triggerIntegrationName, subtext: 'Integration' })
+                          } else {
+                            persistNodeData({ triggerType: nextOption.id, label: nextOption.label.replace(' trigger', ''), subtext: '' })
+                          }
                         }}
                         style={{ background: '#17191e', border: '1px solid #333842', color: '#e2e8f0', borderRadius: 6, padding: '6px 10px', fontSize: 11, cursor: 'pointer' }}
                       >
@@ -3161,7 +3172,11 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                           key={option.id}
                           onClick={() => {
                             setTriggerType(option.id)
-                            persistNodeData({ triggerType: option.id, label: option.label.replace(' trigger', '') })
+                            if (option.id === 'integration') {
+                              persistNodeData({ triggerType: option.id, label: triggerIntegrationName, subtext: 'Integration' })
+                            } else {
+                              persistNodeData({ triggerType: option.id, label: option.label.replace(' trigger', ''), subtext: '' })
+                            }
                           }}
                           style={{ background: triggerType === option.id ? '#334155' : '#17191e', border: '1px solid #333842', borderRadius: 6, color: '#e2e8f0', padding: '8px 10px', textAlign: 'left', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
                         >
@@ -3291,6 +3306,85 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                     >
                       <i className="fa-solid fa-plus" style={{ marginRight: 6 }} /> Add Condition
                     </button>
+
+                    {triggerType === 'integration' && (
+                      <>
+                        <div style={{ marginBottom: 12, color: '#9ca3af', fontSize: 12, lineHeight: 1.5 }}>
+                          Select the integration instance that sends events to this workflow. Torq ingests the event payload as-is and does not normalize trigger JSON.
+                        </div>
+
+                        <div style={{ marginBottom: 14 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Integration</div>
+                          <div style={{ position: 'relative' }}>
+                            <select
+                              value={triggerIntegrationName}
+                              onChange={(event) => {
+                                const value = event.target.value
+                                const defaultInstance = `${value.replace(/\s+/g, '_')}_Demo`
+                                setTriggerIntegrationName(value)
+                                setTriggerIntegrationInstance(defaultInstance)
+                                persistNodeData({
+                                  triggerIntegrationName: value,
+                                  triggerIntegrationInstance: defaultInstance,
+                                  label: value,
+                                  subtext: 'Integration',
+                                })
+                              }}
+                              style={{ width: '100%', appearance: 'none', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                            >
+                              {availableTriggerIntegrations.map((integrationName) => (
+                                <option key={integrationName} value={integrationName}>{integrationName}</option>
+                              ))}
+                            </select>
+                            <ChevronDown size={14} color="#9ca3af" style={{ position: 'absolute', right: 12, top: 12, pointerEvents: 'none' }} />
+                          </div>
+                        </div>
+
+                        <div style={{ marginBottom: 14 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Integration instance</div>
+                          <input
+                            value={triggerIntegrationInstance}
+                            onChange={(event) => {
+                              const value = event.target.value
+                              setTriggerIntegrationInstance(value)
+                              persistNodeData({ triggerIntegrationInstance: value })
+                            }}
+                            placeholder="Okta_Demo"
+                            style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                          />
+                        </div>
+
+                        <div style={{ marginBottom: 14 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Webhook URL</div>
+                          <div style={{ background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                            {triggerUrls.webhook}
+                          </div>
+                          <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
+                            <button
+                              onClick={() => copyText(triggerUrls.webhook)}
+                              style={{ background: '#17191e', border: '1px solid #333842', color: '#e2e8f0', borderRadius: 6, padding: '6px 10px', fontSize: 11, cursor: 'pointer' }}
+                            >
+                              <i className="fa-regular fa-copy" style={{ marginRight: 6 }} /> Copy URL
+                            </button>
+                          </div>
+                        </div>
+
+                        <div style={{ marginBottom: 16 }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#e2e8f0', fontSize: 12, cursor: 'pointer' }}>
+                            <input
+                              type="checkbox"
+                              checked={triggerAcceptRawHttp}
+                              onChange={(event) => {
+                                const next = event.target.checked
+                                setTriggerAcceptRawHttp(next)
+                                persistNodeData({ triggerAcceptRawHttp: next })
+                              }}
+                            />
+                            Accept raw HTTP request payload
+                          </label>
+                        </div>
+                      </>
+                    )}
 
                     {isTeamsTrigger ? (
                       <>
