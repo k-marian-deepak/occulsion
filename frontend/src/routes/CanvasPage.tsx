@@ -233,6 +233,22 @@ const SCHEDULE_INTERVAL_UNITS = ['Minute', 'Hour', 'Day', 'Week'] as const
 const SCHEDULE_TIMEZONES = ['UTC', 'Europe/Madrid', 'CET', 'America/New_York', 'Asia/Kolkata'] as const
 const IMAP_FETCH_INTERVALS = ['1m', '30m', '2h', '1d'] as const
 
+const DEFAULT_CONTAINER_DOCKERFILE = `FROM alpine:latest
+COPY entrypoint.sh /entrypoint.sh
+RUN apk update \\
+    && apk add curl \\
+    && chmod +x /entrypoint.sh
+ENTRYPOINT ["/bin/ash","/entrypoint.sh"]`
+
+const DEFAULT_CONTAINER_ENTRYPOINT = `if [ -z "$COMMAND" ]
+then
+  echo "{\"error\":\"no command provided\"}"
+  exit 9
+else
+  echo "{\"output\":\"Hello There. Your command is, $COMMAND\"}"
+  exit 0
+fi`
+
 const TRIGGER_EVENT_LOG_SAMPLE = [
   {
     id: 'AA-001966',
@@ -2969,6 +2985,7 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const isEmailStep = /gmail|email/i.test(String(node.data?.subtext || '')) || /email|gmail/i.test(String(node.data?.label || ''))
   const isDateTimeStep = /date|time|datetime|timestamp/i.test(String(node.data?.label || ''))
   const isAdvancedTemplateStep = /template|golang|urlquery|print/i.test(String(node.data?.label || ''))
+  const isCustomContainerStep = /hello world|custom container|docker|container step/i.test(stepDescriptor)
   const isJqStep = /run\s*jq|jq command|\bjq\b/i.test(stepDescriptor)
   const isCurlyEscapeStep = /escape\s*\{\}/i.test(String(node.data?.label || ''))
   const isRawDataStep = /raw data/i.test(String(node.data?.label || ''))
@@ -3091,6 +3108,14 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const [teamsSelectedResponsePath, setTeamsSelectedResponsePath] = useState(String(node.data?.teamsSelectedResponsePath || '$.scan_ip_addresses.selected_response'))
   const [teamsAdaptiveCardPayload, setTeamsAdaptiveCardPayload] = useState(String(node.data?.teamsAdaptiveCardPayload || DEFAULT_TEAMS_ADAPTIVE_CARD))
   const [teamsAdaptiveResponsePath, setTeamsAdaptiveResponsePath] = useState(String(node.data?.teamsAdaptiveResponsePath || '$.follow_up_question.value.vendorSelection'))
+  const [customContainerImage, setCustomContainerImage] = useState(String(node.data?.customContainerImage || 'joeattorq/helloworld:1.0.0'))
+  const [customContainerStepId, setCustomContainerStepId] = useState(String(node.data?.customContainerStepId || 'hello_world'))
+  const [customContainerPrettyName, setCustomContainerPrettyName] = useState(String(node.data?.customContainerPrettyName || 'Hello World'))
+  const [customContainerDocumentationUrl, setCustomContainerDocumentationUrl] = useState(String(node.data?.customContainerDocumentationUrl || 'https://knowyourmeme.com/memes/doge'))
+  const [customContainerIconUrl, setCustomContainerIconUrl] = useState(String(node.data?.customContainerIconUrl || 'https://raw.githubusercontent.com/joe-at-torq/Torq-Steps/main/Icons/cool-doge.png'))
+  const [customContainerCommand, setCustomContainerCommand] = useState(String(node.data?.customContainerCommand || 'such command, much wow!'))
+  const [customContainerDockerfile, setCustomContainerDockerfile] = useState(String(node.data?.customContainerDockerfile || DEFAULT_CONTAINER_DOCKERFILE))
+  const [customContainerEntrypoint, setCustomContainerEntrypoint] = useState(String(node.data?.customContainerEntrypoint || DEFAULT_CONTAINER_ENTRYPOINT))
   const [rawDataInput, setRawDataInput] = useState(String(node.data?.rawDataInput || DEFAULT_RAW_DATA_INPUT))
   const [addJsonInput, setAddJsonInput] = useState(String(node.data?.addJsonInput || DEFAULT_ADD_TO_JSON_INPUT))
   const [curlyEscapeInput, setCurlyEscapeInput] = useState(String(node.data?.curlyEscapeInput || DEFAULT_CURLY_ESCAPE_STATIC))
@@ -3196,6 +3221,18 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
       return false
     }
   })()
+  const customContainerBuildCommand = 'docker build -t example . --platform=linux/amd64'
+  const customContainerRunCommand = `docker run -it --rm --name example --env COMMAND="${customContainerCommand || 'such command, much wow!'}" example`
+  const customContainerTagCommand = `docker tag example yourdockerhub/example:${(customContainerImage.split(':')[1] || '1.0.0').trim() || '1.0.0'}`
+  const customContainerPushCommand = `docker push yourdockerhub/example:${(customContainerImage.split(':')[1] || '1.0.0').trim() || '1.0.0'}`
+  const customContainerYaml = `name: ${customContainerImage || 'yourdockerhub/example:1.0.0'}
+id: ${customContainerStepId || 'hello_world'}
+documentationUrl: ${customContainerDocumentationUrl || 'https://example.com/docs'}
+icon: ${customContainerIconUrl || 'https://example.com/icon.png'}
+env:
+ COMMAND: ${customContainerCommand || 'such command, much wow!'}
+pretty_name: ${customContainerPrettyName || 'Hello World'}
+isPrivate: false`
 
   const copyText = async (value: string) => {
     try {
@@ -3471,6 +3508,14 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
     setTeamsSelectedResponsePath(String(node.data?.teamsSelectedResponsePath || '$.scan_ip_addresses.selected_response'))
     setTeamsAdaptiveCardPayload(String(node.data?.teamsAdaptiveCardPayload || DEFAULT_TEAMS_ADAPTIVE_CARD))
     setTeamsAdaptiveResponsePath(String(node.data?.teamsAdaptiveResponsePath || '$.follow_up_question.value.vendorSelection'))
+    setCustomContainerImage(String(node.data?.customContainerImage || 'joeattorq/helloworld:1.0.0'))
+    setCustomContainerStepId(String(node.data?.customContainerStepId || 'hello_world'))
+    setCustomContainerPrettyName(String(node.data?.customContainerPrettyName || 'Hello World'))
+    setCustomContainerDocumentationUrl(String(node.data?.customContainerDocumentationUrl || 'https://knowyourmeme.com/memes/doge'))
+    setCustomContainerIconUrl(String(node.data?.customContainerIconUrl || 'https://raw.githubusercontent.com/joe-at-torq/Torq-Steps/main/Icons/cool-doge.png'))
+    setCustomContainerCommand(String(node.data?.customContainerCommand || 'such command, much wow!'))
+    setCustomContainerDockerfile(String(node.data?.customContainerDockerfile || DEFAULT_CONTAINER_DOCKERFILE))
+    setCustomContainerEntrypoint(String(node.data?.customContainerEntrypoint || DEFAULT_CONTAINER_ENTRYPOINT))
     setAutocomplete(null)
     setActiveField(null)
     setPickerOpenFor(null)
@@ -5458,6 +5503,154 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                 <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.6 }}>
                   <strong style={{ color: '#e2e8f0' }}>Troubleshooting</strong><br />
                   {EXECUTION_RESPONSE_CODES.join(' • ')}
+                </div>
+              </>
+            ) : isCustomContainerStep ? (
+              <>
+                <div style={{ marginBottom: 12, color: '#9ca3af', fontSize: 12, lineHeight: 1.5 }}>
+                  Build a custom container step by defining Dockerfile + entrypoint, then map step inputs under <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>env</span> in step YAML.
+                </div>
+
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Container image</div>
+                  <input
+                    value={customContainerImage}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      setCustomContainerImage(value)
+                      persistNodeData({ customContainerImage: value })
+                    }}
+                    placeholder="yourdockerhub/example:1.0.0"
+                    style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none', fontFamily: 'monospace' }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 14, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Step ID</div>
+                    <input
+                      value={customContainerStepId}
+                      onChange={(event) => {
+                        const value = event.target.value
+                        setCustomContainerStepId(value)
+                        persistNodeData({ customContainerStepId: value })
+                      }}
+                      placeholder="hello_world"
+                      style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none', fontFamily: 'monospace' }}
+                    />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Pretty name</div>
+                    <input
+                      value={customContainerPrettyName}
+                      onChange={(event) => {
+                        const value = event.target.value
+                        setCustomContainerPrettyName(value)
+                        persistNodeData({ customContainerPrettyName: value, label: value || 'Hello World' })
+                      }}
+                      placeholder="Hello World"
+                      style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>COMMAND (env parameter)</div>
+                  <input
+                    value={customContainerCommand}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      setCustomContainerCommand(value)
+                      persistNodeData({ customContainerCommand: value })
+                    }}
+                    placeholder="such command, much wow!"
+                    style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                  />
+                  <div style={{ marginTop: 6, color: '#94a3b8', fontSize: 11 }}>In entrypoint scripts, read it as <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>$COMMAND</span>.</div>
+                </div>
+
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Dockerfile</div>
+                  <textarea
+                    value={customContainerDockerfile}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      setCustomContainerDockerfile(value)
+                      persistNodeData({ customContainerDockerfile: value })
+                    }}
+                    style={{ width: '100%', minHeight: 140, background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>entrypoint.sh</div>
+                  <textarea
+                    value={customContainerEntrypoint}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      setCustomContainerEntrypoint(value)
+                      persistNodeData({ customContainerEntrypoint: value })
+                    }}
+                    style={{ width: '100%', minHeight: 160, background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.6 }}>
+                  <strong style={{ color: '#e2e8f0' }}>Build & Test</strong><br />
+                  <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{customContainerBuildCommand}</span><br />
+                  <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{customContainerRunCommand}</span><br />
+                  <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{customContainerTagCommand}</span><br />
+                  <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{customContainerPushCommand}</span>
+                </div>
+
+                <div style={{ marginBottom: 14, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Documentation URL</div>
+                    <input
+                      value={customContainerDocumentationUrl}
+                      onChange={(event) => {
+                        const value = event.target.value
+                        setCustomContainerDocumentationUrl(value)
+                        persistNodeData({ customContainerDocumentationUrl: value })
+                      }}
+                      placeholder="https://docs.example.com"
+                      style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
+                    />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Icon URL</div>
+                    <input
+                      value={customContainerIconUrl}
+                      onChange={(event) => {
+                        const value = event.target.value
+                        setCustomContainerIconUrl(value)
+                        persistNodeData({ customContainerIconUrl: value, iconUrl: value || undefined })
+                      }}
+                      placeholder="https://.../icon.png"
+                      style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>Step YAML</div>
+                    <button
+                      onClick={() => copyText(customContainerYaml)}
+                      style={{ background: '#17191e', border: '1px solid #333842', color: '#e2e8f0', borderRadius: 6, padding: '4px 8px', fontSize: 11, cursor: 'pointer' }}
+                    >
+                      <i className="fa-regular fa-copy" style={{ marginRight: 6 }} /> Copy
+                    </button>
+                  </div>
+                  <textarea
+                    readOnly
+                    value={customContainerYaml}
+                    style={{ width: '100%', minHeight: 180, background: '#0f1115', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.6 }}>
+                  Script signaling: use <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>exit 0</span> for success and <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>exit 9</span> for failure so Torq marks execution correctly.
                 </div>
               </>
             ) : isMessageLikeStep ? (
