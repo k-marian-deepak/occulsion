@@ -509,6 +509,14 @@ export function CanvasPage() {
     return item.timestamp < startOfYesterday
   })
 
+  const activeRun = runLogEntries.find((item) => item.id === activeRunId) || runLogEntries[0] || null
+
+  useEffect(() => {
+    if (!activeRunId && runLogEntries.length > 0) {
+      setActiveRunId(runLogEntries[0].id)
+    }
+  }, [activeRunId, runLogEntries])
+
   return (
     <div className="workflow-canvas-page" style={{ display: 'flex', height: '100vh', width: '100%', background: '#0e1015', overflow: 'hidden' }}>
       
@@ -854,9 +862,13 @@ export function CanvasPage() {
 
       </div>
 
-      {/* ── Properties Panel ─────────────────────────────────── */}
-      {selectedNode && (
-        <PropertiesPanel node={selectedNode} onEditStep={() => setEditingStep(selectedNode)} />
+      {/* ── Properties / Run Details Panel ───────────────────── */}
+      {viewMode === 'runlog' ? (
+        <RunLogDetailsPanel run={activeRun} />
+      ) : (
+        selectedNode && (
+          <PropertiesPanel node={selectedNode} onEditStep={() => setEditingStep(selectedNode)} />
+        )
       )}
 
       {editingStep && (
@@ -1131,6 +1143,100 @@ function VersionHistorySection({
             )}
           </div>
         ))}
+      </div>
+    </div>
+  )
+}
+
+function RunLogDetailsPanel({ run }: { run: WorkflowRunEntry | null }) {
+  const [tab, setTab] = useState<'output' | 'input' | 'debug'>('output')
+
+  if (!run) {
+    return (
+      <div style={{ width: 420, background: '#1c1e23', borderLeft: '1px solid #2a2e35', display: 'flex', flexDirection: 'column', flexShrink: 0, zIndex: 10, overflowY: 'auto', position: 'relative', padding: 20 }}>
+        <div style={{ color: '#9ca3af', fontSize: 13 }}>No execution selected</div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={{ width: 420, background: '#1c1e23', borderLeft: '1px solid #2a2e35', display: 'flex', flexDirection: 'column', flexShrink: 0, zIndex: 10, overflowY: 'auto', position: 'relative' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px 0', borderBottom: '1px solid #2a2e35' }}>
+        <div style={{ display: 'flex', gap: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 500, color: '#6b7280', paddingBottom: 12 }}>Properties</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', paddingBottom: 12, borderBottom: '2px solid #fff' }}>Execution Log</div>
+          <div style={{ fontSize: 13, fontWeight: 500, color: '#6b7280', paddingBottom: 12 }}>Mock Output</div>
+        </div>
+      </div>
+
+      <div style={{ padding: '18px 20px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
+          <div>
+            <div style={{ color: '#6b7280', fontSize: 11, marginBottom: 4 }}>ID</div>
+            <div style={{ color: '#e2e8f0', fontSize: 13 }}>{run.id}</div>
+          </div>
+          <div>
+            <div style={{ color: '#6b7280', fontSize: 11, marginBottom: 4 }}>Time</div>
+            <div style={{ color: '#e2e8f0', fontSize: 13 }}>{formatRunTimestamp(run.timestamp)}</div>
+            <div style={{ color: '#9ca3af', fontSize: 11 }}>Duration: {run.durationText}</div>
+          </div>
+          <div>
+            <div style={{ color: '#6b7280', fontSize: 11, marginBottom: 4 }}>Executed by</div>
+            <div style={{ color: '#e2e8f0', fontSize: 13 }}>{run.executedBy}</div>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 16, borderBottom: '1px solid #2a2e35', marginBottom: 10 }}>
+          {[
+            { id: 'output', label: 'Output' },
+            { id: 'input', label: 'Input' },
+            { id: 'debug', label: 'Debug' },
+          ].map((item) => (
+            <button
+              key={item.id}
+              onClick={() => setTab(item.id as 'output' | 'input' | 'debug')}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: tab === item.id ? '#fff' : '#6b7280',
+                fontSize: 13,
+                fontWeight: tab === item.id ? 600 : 500,
+                padding: '0 0 10px',
+                borderBottom: tab === item.id ? '2px solid #fff' : '2px solid transparent',
+                cursor: 'pointer',
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ background: '#17191e', border: '1px solid #333842', borderRadius: 8, padding: '12px 14px', color: '#cbd5e1', fontSize: 12, fontFamily: 'monospace', whiteSpace: 'pre-wrap', minHeight: 180 }}>
+          {tab === 'output'
+            ? JSON.stringify(
+                {
+                  execution: {
+                    id: run.id,
+                    mode: run.mode,
+                    source: RUN_SOURCE_LABEL[run.source],
+                    status: run.status,
+                    step: run.nodeLabel || null,
+                  },
+                },
+                null,
+                2,
+              )
+            : tab === 'input'
+            ? JSON.stringify(
+                {
+                  trigger_event: 'Selected previous event payload',
+                  selected_step: run.source === 'selected-step' ? run.nodeLabel : null,
+                },
+                null,
+                2,
+              )
+            : `mode=${run.mode}\nsource=${run.source}\nstatus=${run.status}\nnote=${run.status === 'failed' ? 'Failure step highlighted on canvas.' : 'Execution completed successfully.'}`}
+        </div>
       </div>
     </div>
   )
