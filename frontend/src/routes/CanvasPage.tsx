@@ -3309,6 +3309,33 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const isSlackSlashCommandTrigger = isSlackTrigger && /slash|command/i.test(stepDescriptor)
   const isSlackCustomEventsTrigger = isSlackTrigger && /custom|event|monitor|channel/i.test(stepDescriptor)
   const isExitOperator = /\bexit\b/i.test(String(node.data?.label || ''))
+  const isTorqCreateWorkspaceStep = /create\s+a\s+workspace/i.test(stepDescriptor)
+  const isTorqGenerateAccessTokenStep = /generate\s+access\s+token/i.test(stepDescriptor)
+  const isTorqListClaimMappingsStep = /list\s+claim\s+mappings/i.test(stepDescriptor)
+  const isTorqAddClaimMappingStep = /add\s+a\s+claim\s+mapping/i.test(stepDescriptor)
+  const isTorqInviteNewUserStep = /invite\s+a\s+new\s+user|invite\s+new\s+user/i.test(stepDescriptor)
+  const isTorqCreateIntegrationStep = /create\s+an\s+integration/i.test(stepDescriptor)
+  const isTorqCreateStepRunnerStep = /create\s+step\s+runner/i.test(stepDescriptor)
+  const isTorqListWorkflowsStep = /list\s+workflows/i.test(stepDescriptor)
+  const isTorqRetrieveWorkflowStep = /retrieve\s+a\s+workflow|retrieve\s+workflow/i.test(stepDescriptor)
+  const isTorqRetrieveRevisionStep = /retrieve\s+a\s+revision|retrieve\s+revision/i.test(stepDescriptor)
+  const isTorqImportWorkflowStep = /import\s+a\s+workflow|import\s+workflow/i.test(stepDescriptor)
+  const isTorqPublishWorkflowStep = /publish\s+a\s+workflow|publish\s+workflow/i.test(stepDescriptor)
+  const isTorqAddTagStep = /add\s+a\s+tag|add\s+tag/i.test(stepDescriptor)
+  const isTorqProvisioningStep =
+    isTorqCreateWorkspaceStep ||
+    isTorqGenerateAccessTokenStep ||
+    isTorqListClaimMappingsStep ||
+    isTorqAddClaimMappingStep ||
+    isTorqInviteNewUserStep ||
+    isTorqCreateIntegrationStep ||
+    isTorqCreateStepRunnerStep ||
+    isTorqListWorkflowsStep ||
+    isTorqRetrieveWorkflowStep ||
+    isTorqRetrieveRevisionStep ||
+    isTorqImportWorkflowStep ||
+    isTorqPublishWorkflowStep ||
+    isTorqAddTagStep
   const isCircleCIRotationStep = /circleci|secret rotation|environment variables|rotate secrets/i.test(stepDescriptor)
   const isLostDeviceStep = /lost device|stolen device|missingdevice|lostdevice|offboarding/i.test(stepDescriptor)
   const isMessageLikeStep = /message|slack|teams|adaptive card|ticket|log/i.test(String(node.data?.label || ''))
@@ -3585,6 +3612,26 @@ env:
 ${customContainerEnvYaml || ' COMMAND: such command, much wow!'}
 pretty_name: ${customContainerPrettyName || 'Hello World'}
 isPrivate: false`
+  const torqWorkspaceNamePath = String(node.data?.torqWorkspaceNamePath || '{{ $.event.workspace_name }}')
+  const torqCopySsoConfig = Boolean(node.data?.torqCopySsoConfig ?? true)
+  const torqWorkspaceClientIdPath = String(node.data?.torqWorkspaceClientIdPath || '{{ $.create_a_workspace.api_object.api_key.client_id }}')
+  const torqWorkspaceClientSecretPath = String(node.data?.torqWorkspaceClientSecretPath || '{{ $.create_a_workspace.api_object.api_key.client_secret }}')
+  const torqWorkspaceAccessTokenPath = String(node.data?.torqWorkspaceAccessTokenPath || '{{ $.generate_access_token.api_object.access_token }}')
+  const torqClaimNamePath = String(node.data?.torqClaimNamePath || '{{ $.loop_value.claim_name }}')
+  const torqClaimValuePath = String(node.data?.torqClaimValuePath || '{{ $.loop_value.claim_value }}')
+  const torqClaimRoleIdPath = String(node.data?.torqClaimRoleIdPath || '{{ $.loop_value.id }}')
+  const torqInviteUserEmailPath = String(node.data?.torqInviteUserEmailPath || '{{ $.loop_key }}')
+  const torqInviteUserRoleIdPath = String(node.data?.torqInviteUserRoleIdPath || '{{ $.loop_value }}')
+  const torqIntegrationName = String(node.data?.torqIntegrationName || 'shodan')
+  const torqIntegrationType = String(node.data?.torqIntegrationType || 'shodan_token')
+  const torqIntegrationApiKeyPath = String(node.data?.torqIntegrationApiKeyPath || '{{ $.integrations.shodan.api_key }}')
+  const torqDiscardData = String(node.data?.torqDiscardData || 'Yes')
+  const torqRunnerDisplayNamePath = String(node.data?.torqRunnerDisplayNamePath || '{{ $.loop_key }}')
+  const torqRunnerPlatformPath = String(node.data?.torqRunnerPlatformPath || '{{ $.loop_value }}')
+  const torqWorkflowNamePath = String(node.data?.torqWorkflowNamePath || '{{ $.loop_value.workflow_name }}')
+  const torqWorkflowYamlPath = String(node.data?.torqWorkflowYamlPath || '{{ $.retrieve_a_revision.api_object.yaml }}')
+  const torqPublishAfterImport = Boolean(node.data?.torqPublishAfterImport ?? true)
+  const torqTagNamePath = String(node.data?.torqTagNamePath || '{{ $.loop_value.tag }}')
 
   const copyText = async (value: string) => {
     try {
@@ -6141,6 +6188,251 @@ isPrivate: false`
 
                 <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.6 }}>
                   Script signaling: use <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>exit 0</span> for success and <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>exit 9</span> for failure so Torq marks execution correctly.
+                </div>
+              </>
+            ) : isTorqProvisioningStep ? (
+              <>
+                <div style={{ marginBottom: 12, color: '#9ca3af', fontSize: 12, lineHeight: 1.5 }}>
+                  Workspace provisioning mode: authenticate subsequent setup steps with the new workspace access token and keep sensitive values protected.
+                </div>
+
+                {isTorqCreateWorkspaceStep && (
+                  <>
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>workspace_name</div>
+                      <input
+                        value={torqWorkspaceNamePath}
+                        onChange={(event) => persistNodeData({ torqWorkspaceNamePath: event.target.value })}
+                        placeholder="{{ $.event.workspace_name }}"
+                        style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
+                      />
+                    </div>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#e2e8f0', fontSize: 12, cursor: 'pointer', marginBottom: 14 }}>
+                      <input
+                        type="checkbox"
+                        checked={torqCopySsoConfig}
+                        onChange={(event) => persistNodeData({ torqCopySsoConfig: event.target.checked })}
+                      />
+                      Copy SSO config from current workspace
+                    </label>
+                    <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.5 }}>
+                      Output paths for downstream auth:<br />
+                      <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{torqWorkspaceClientIdPath}</span><br />
+                      <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{torqWorkspaceClientSecretPath}</span>
+                    </div>
+                  </>
+                )}
+
+                {isTorqGenerateAccessTokenStep && (
+                  <>
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Client ID</div>
+                      <input
+                        value={torqWorkspaceClientIdPath}
+                        onChange={(event) => persistNodeData({ torqWorkspaceClientIdPath: event.target.value })}
+                        placeholder="{{ $.create_a_workspace.api_object.api_key.client_id }}"
+                        style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#38bdf8', fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
+                      />
+                    </div>
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Client secret</div>
+                      <input
+                        value={torqWorkspaceClientSecretPath}
+                        onChange={(event) => persistNodeData({ torqWorkspaceClientSecretPath: event.target.value })}
+                        placeholder="{{ $.create_a_workspace.api_object.api_key.client_secret }}"
+                        style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#38bdf8', fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
+                      />
+                    </div>
+                    <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.5 }}>
+                      Access token output path:<br />
+                      <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{torqWorkspaceAccessTokenPath}</span>
+                    </div>
+                  </>
+                )}
+
+                {isTorqListClaimMappingsStep && (
+                  <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.5 }}>
+                    Lists claim mappings in the current workspace. Loop on <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>$.list_claim_mappings.api_object</span>.
+                  </div>
+                )}
+
+                {isTorqAddClaimMappingStep && (
+                  <>
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Claim name</div>
+                      <input
+                        value={torqClaimNamePath}
+                        onChange={(event) => persistNodeData({ torqClaimNamePath: event.target.value })}
+                        placeholder="{{ $.loop_value.claim_name }}"
+                        style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#38bdf8', fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
+                      />
+                    </div>
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Claim value</div>
+                      <input
+                        value={torqClaimValuePath}
+                        onChange={(event) => persistNodeData({ torqClaimValuePath: event.target.value })}
+                        placeholder="{{ $.loop_value.claim_value }}"
+                        style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#38bdf8', fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
+                      />
+                    </div>
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Role ID</div>
+                      <input
+                        value={torqClaimRoleIdPath}
+                        onChange={(event) => persistNodeData({ torqClaimRoleIdPath: event.target.value })}
+                        placeholder="{{ $.loop_value.id }}"
+                        style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#38bdf8', fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
+                      />
+                    </div>
+                  </>
+                )}
+
+                {isTorqInviteNewUserStep && (
+                  <>
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>User email</div>
+                      <input
+                        value={torqInviteUserEmailPath}
+                        onChange={(event) => persistNodeData({ torqInviteUserEmailPath: event.target.value })}
+                        placeholder="{{ $.loop_key }}"
+                        style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#38bdf8', fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
+                      />
+                    </div>
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Role ID</div>
+                      <input
+                        value={torqInviteUserRoleIdPath}
+                        onChange={(event) => persistNodeData({ torqInviteUserRoleIdPath: event.target.value })}
+                        placeholder="{{ $.loop_value }}"
+                        style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#38bdf8', fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
+                      />
+                    </div>
+                  </>
+                )}
+
+                {isTorqCreateIntegrationStep && (
+                  <>
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Integration name</div>
+                      <input
+                        value={torqIntegrationName}
+                        onChange={(event) => persistNodeData({ torqIntegrationName: event.target.value })}
+                        placeholder="shodan"
+                        style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
+                      />
+                    </div>
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Integration type</div>
+                      <input
+                        value={torqIntegrationType}
+                        onChange={(event) => persistNodeData({ torqIntegrationType: event.target.value })}
+                        placeholder="shodan_token"
+                        style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
+                      />
+                    </div>
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>API Key</div>
+                      <input
+                        value={torqIntegrationApiKeyPath}
+                        onChange={(event) => persistNodeData({ torqIntegrationApiKeyPath: event.target.value })}
+                        placeholder="{{ $.integrations.shodan.api_key }}"
+                        style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#38bdf8', fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
+                      />
+                    </div>
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Discard data (Execution Options)</div>
+                      <div style={{ position: 'relative' }}>
+                        <select
+                          value={torqDiscardData}
+                          onChange={(event) => persistNodeData({ torqDiscardData: event.target.value })}
+                          style={{ width: '100%', appearance: 'none', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
+                        >
+                          <option>Yes</option>
+                          <option>No</option>
+                        </select>
+                        <ChevronDown size={14} color="#9ca3af" style={{ position: 'absolute', right: 12, top: 12, pointerEvents: 'none' }} />
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {isTorqCreateStepRunnerStep && (
+                  <>
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Display name</div>
+                      <input
+                        value={torqRunnerDisplayNamePath}
+                        onChange={(event) => persistNodeData({ torqRunnerDisplayNamePath: event.target.value })}
+                        placeholder="{{ $.loop_key }}"
+                        style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#38bdf8', fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
+                      />
+                    </div>
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Platform</div>
+                      <input
+                        value={torqRunnerPlatformPath}
+                        onChange={(event) => persistNodeData({ torqRunnerPlatformPath: event.target.value })}
+                        placeholder="{{ $.loop_value }}"
+                        style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#38bdf8', fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
+                      />
+                    </div>
+                  </>
+                )}
+
+                {(isTorqListWorkflowsStep || isTorqRetrieveWorkflowStep || isTorqRetrieveRevisionStep || isTorqImportWorkflowStep || isTorqPublishWorkflowStep || isTorqAddTagStep) && (
+                  <>
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Workflow name filter</div>
+                      <input
+                        value={torqWorkflowNamePath}
+                        onChange={(event) => persistNodeData({ torqWorkflowNamePath: event.target.value })}
+                        placeholder="{{ $.loop_value.workflow_name }}"
+                        style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#38bdf8', fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
+                      />
+                    </div>
+
+                    {(isTorqRetrieveRevisionStep || isTorqImportWorkflowStep) && (
+                      <div style={{ marginBottom: 14 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Workflow YAML</div>
+                        <textarea
+                          value={torqWorkflowYamlPath}
+                          onChange={(event) => persistNodeData({ torqWorkflowYamlPath: event.target.value })}
+                          placeholder="{{ $.retrieve_a_revision.api_object.yaml }}"
+                          style={{ width: '100%', minHeight: 120, background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#38bdf8', fontSize: 12, outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
+                        />
+                      </div>
+                    )}
+
+                    {isTorqImportWorkflowStep && (
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#e2e8f0', fontSize: 12, cursor: 'pointer', marginBottom: 14 }}>
+                        <input
+                          type="checkbox"
+                          checked={torqPublishAfterImport}
+                          onChange={(event) => persistNodeData({ torqPublishAfterImport: event.target.checked })}
+                        />
+                        Publish after import
+                      </label>
+                    )}
+
+                    {isTorqAddTagStep && (
+                      <div style={{ marginBottom: 14 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Tag name</div>
+                        <input
+                          value={torqTagNamePath}
+                          onChange={(event) => persistNodeData({ torqTagNamePath: event.target.value })}
+                          placeholder="{{ $.loop_value.tag }}"
+                          style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#38bdf8', fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
+                        />
+                      </div>
+                    )}
+                  </>
+                )}
+
+                <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.6 }}>
+                  <strong style={{ color: '#e2e8f0' }}>Torq integration auth</strong><br />
+                  Select <span style={{ color: '#e2e8f0' }}>Set values separately</span> and pass the access token path:<br />
+                  <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{torqWorkspaceAccessTokenPath}</span>
                 </div>
               </>
             ) : isMessageLikeStep ? (
