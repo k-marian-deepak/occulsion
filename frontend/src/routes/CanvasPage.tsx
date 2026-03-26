@@ -1483,7 +1483,7 @@ export function CanvasPage() {
                   </div>
                 </div>
                 
-                <div style={{ pointerEvents: 'auto', marginTop: 14, background: '#1c1e23', border: '1px solid #333842', borderRadius: 8, padding: 4, display: 'flex', gap: 4 }}>
+                <div style={{ pointerEvents: 'auto', position: 'absolute', left: '50%', transform: 'translateX(-50%)', top: 14, zIndex: 28, background: '#1c1e23', border: '1px solid #333842', borderRadius: 8, padding: 4, display: 'flex', gap: 4, boxShadow: '0 10px 24px rgba(0,0,0,0.35)' }}>
                   <button 
                     onClick={() => setViewMode('designer')}
                     style={{ padding: '6px 20px', background: viewMode === 'designer' ? '#333842' : 'transparent', border: 'none', borderRadius: 6, color: viewMode === 'designer' ? '#fff' : '#9ca3af', fontSize: 13, fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s ease' }}>
@@ -1506,7 +1506,7 @@ export function CanvasPage() {
                   )
                 })()}
 
-                <div style={{ position: 'absolute', right: 24, top: 16, pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: isCompactTopHeader ? 8 : 12, maxWidth: isCompactTopHeader ? '66vw' : '72vw' }}>
+                <div style={{ position: 'absolute', right: 24, top: 16, pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: isCompactTopHeader ? 8 : 12, maxWidth: isCompactTopHeader ? '66vw' : '72vw', zIndex: 24 }}>
                   {!isCompactTopHeader && (
                     <select
                       value={currentUserRole}
@@ -2081,16 +2081,16 @@ function RunLogDetailsPanel({ run }: { run: WorkflowRunEntry | null }) {
 
   if (!run) {
     return (
-      <div style={{ width: 420, background: '#1c1e23', borderLeft: '1px solid #2a2e35', display: 'flex', flexDirection: 'column', flexShrink: 0, zIndex: 10, overflowY: 'auto', position: 'relative', padding: 20 }}>
+      <div style={{ width: 500, background: '#1c1e23', border: '1px solid #333842', borderRadius: 14, display: 'flex', flexDirection: 'column', flexShrink: 0, zIndex: 26, overflowY: 'auto', position: 'absolute', right: 14, top: 84, bottom: 14, padding: 20, boxShadow: '0 16px 30px rgba(0,0,0,0.35)' }}>
         <div style={{ color: '#9ca3af', fontSize: 13 }}>No execution selected</div>
       </div>
     )
   }
 
   return (
-    <div style={{ width: 420, background: '#1c1e23', borderLeft: '1px solid #2a2e35', display: 'flex', flexDirection: 'column', flexShrink: 0, zIndex: 10, overflowY: 'auto', position: 'relative' }}>
+    <div style={{ width: 500, background: '#1c1e23', border: '1px solid #333842', borderRadius: 14, display: 'flex', flexDirection: 'column', flexShrink: 0, zIndex: 26, overflowY: 'auto', position: 'absolute', right: 14, top: 84, bottom: 14, boxShadow: '0 16px 30px rgba(0,0,0,0.35)' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px 0', borderBottom: '1px solid #2a2e35' }}>
-        <div style={{ display: 'flex', gap: 20 }}>
+        <div style={{ display: 'flex', gap: 20, whiteSpace: 'nowrap' }}>
           <div style={{ fontSize: 13, fontWeight: 500, color: '#6b7280', paddingBottom: 12 }}>Properties</div>
           <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', paddingBottom: 12, borderBottom: '2px solid #fff' }}>Execution Log</div>
           <div style={{ fontSize: 13, fontWeight: 500, color: '#6b7280', paddingBottom: 12 }}>Mock Output</div>
@@ -4025,18 +4025,19 @@ isPrivate: false`
   
   return (
     <div className="animate-fade-in workflow-editor-properties" style={{
-      width: 420, background: '#1c1e23', borderLeft: '1px solid #2a2e35',
+      width: 500, background: '#1c1e23', border: '1px solid #333842', borderRadius: 14,
       display: 'flex', flexDirection: 'column', flexShrink: 0,
-      zIndex: 10, overflowY: 'auto', position: 'relative'
+      zIndex: 26, overflowY: 'auto', position: 'absolute', right: 14, top: 84, bottom: 14,
+      boxShadow: '0 16px 30px rgba(0,0,0,0.35)'
     }}>
       {/* ── Header Tabs & Toolbar ─────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px 0', borderBottom: '1px solid #2a2e35' }}>
-        <div style={{ display: 'flex', gap: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 20px 0', borderBottom: '1px solid #2a2e35' }}>
+        <div style={{ display: 'flex', gap: 24, whiteSpace: 'nowrap', alignItems: 'flex-end' }}>
           <button onClick={() => setPanelTab('properties')} style={{ background: 'transparent', border: 'none', fontSize: 13, fontWeight: panelTab === 'properties' ? 600 : 500, color: panelTab === 'properties' ? '#fff' : '#6b7280', paddingBottom: 12, borderBottom: panelTab === 'properties' ? '2px solid #fff' : '2px solid transparent', cursor: 'pointer' }}>Properties</button>
           <button onClick={() => setPanelTab('execution')} style={{ background: 'transparent', border: 'none', fontSize: 13, fontWeight: panelTab === 'execution' ? 600 : 500, color: panelTab === 'execution' ? '#fff' : '#6b7280', paddingBottom: 12, borderBottom: panelTab === 'execution' ? '2px solid #fff' : '2px solid transparent', cursor: 'pointer' }}>Execution Log</button>
           <button onClick={() => setPanelTab('mock')} style={{ background: 'transparent', border: 'none', fontSize: 13, fontWeight: panelTab === 'mock' ? 600 : 500, color: panelTab === 'mock' ? '#fff' : '#6b7280', paddingBottom: 12, borderBottom: panelTab === 'mock' ? '2px solid #fff' : '2px solid transparent', cursor: 'pointer' }}>Mock Output</button>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingBottom: 12, color: '#9ca3af' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, paddingBottom: 10, paddingLeft: 14, marginLeft: 14, borderLeft: '1px solid #333842', color: '#9ca3af' }}>
           <button
             onClick={() => {
               const next = !mockOutputEnabled
@@ -4045,7 +4046,7 @@ isPrivate: false`
               window.alert(next ? 'Execute with mock output enabled for this step.' : 'Mock output disabled for this step.')
             }}
             title="Execute with mock output"
-            style={{ background: 'none', border: 'none', color: mockOutputEnabled ? '#facc15' : '#9ca3af', cursor: 'pointer', display: 'flex' }}
+            style={{ width: 28, height: 28, background: 'none', border: '1px solid #333842', borderRadius: 7, color: mockOutputEnabled ? '#facc15' : '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           >
             <i className="fa-regular fa-flag" />
           </button>
@@ -4057,7 +4058,7 @@ isPrivate: false`
                 persistNodeData({ customContainerEnabled: next })
               }}
               title={customContainerEnabled ? 'Disable custom container builder' : 'Enable custom container builder'}
-              style={{ background: 'none', border: 'none', color: customContainerEnabled ? '#22d3ee' : '#9ca3af', cursor: 'pointer', display: 'flex' }}
+              style={{ width: 28, height: 28, background: 'none', border: '1px solid #333842', borderRadius: 7, color: customContainerEnabled ? '#22d3ee' : '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
               <i className="fa-solid fa-box" />
             </button>
@@ -4069,12 +4070,12 @@ isPrivate: false`
                 persistNodeData({ disabled: next })
               }}
               title={isNodeDisabled ? 'Enable operator' : 'Disable operator'}
-              style={{ background: 'none', border: 'none', color: isNodeDisabled ? '#ef4444' : '#9ca3af', cursor: 'pointer', display: 'flex' }}
+              style={{ width: 28, height: 28, background: 'none', border: '1px solid #333842', borderRadius: 7, color: isNodeDisabled ? '#ef4444' : '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             >
               <i className={isNodeDisabled ? 'fa-solid fa-eye-slash' : 'fa-solid fa-eye'} />
             </button>
           )}
-          <button style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', display: 'flex' }}><i className="fa-solid fa-arrow-right-to-bracket" style={{ transform: 'rotate(180deg)' }} /></button>
+          <button style={{ width: 28, height: 28, background: 'none', border: '1px solid #333842', borderRadius: 7, color: '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="fa-solid fa-arrow-right-to-bracket" style={{ transform: 'rotate(180deg)' }} /></button>
           <button 
             onClick={() => {
               const newNode = {
@@ -4088,7 +4089,7 @@ isPrivate: false`
               selectNode(newNode)
             }}
             title="Duplicate Node"
-            style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', display: 'flex' }}>
+            style={{ width: 28, height: 28, background: 'none', border: '1px solid #333842', borderRadius: 7, color: '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Copy size={14} />
           </button>
           <button 
@@ -4098,10 +4099,10 @@ isPrivate: false`
               selectNode(null)
             }}
             title="Delete Node"
-            style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', display: 'flex' }}>
+            style={{ width: 28, height: 28, background: 'none', border: '1px solid #333842', borderRadius: 7, color: '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Trash2 size={14} />
           </button>
-          <button style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', display: 'flex' }}><MoreHorizontal size={14} /></button>
+          <button style={{ width: 28, height: 28, background: 'none', border: '1px solid #333842', borderRadius: 7, color: '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><MoreHorizontal size={14} /></button>
         </div>
       </div>
 
