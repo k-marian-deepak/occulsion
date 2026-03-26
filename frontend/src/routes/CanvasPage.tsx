@@ -223,6 +223,7 @@ const SYSTEM_EVENT_CONTEXT_FIELDS: Record<(typeof SYSTEM_EVENT_OPTIONS)[number][
 const TRIGGER_CONDITION_OPERATORS = ['Equals', 'Contains'] as const
 const SCHEDULE_INTERVAL_UNITS = ['Minute', 'Hour', 'Day', 'Week'] as const
 const SCHEDULE_TIMEZONES = ['UTC', 'Europe/Madrid', 'CET', 'America/New_York', 'Asia/Kolkata'] as const
+const IMAP_FETCH_INTERVALS = ['1m', '30m', '2h', '1d'] as const
 
 const TRIGGER_EVENT_LOG_SAMPLE = [
   {
@@ -416,6 +417,43 @@ function buildSystemEventLogSample(
       timestamp: Date.now() - 4 * 60 * 60 * 1000,
       triggeredBy: 'D',
       event: buildSystemEventPayload(eventType, 3),
+    },
+  ]
+}
+
+function buildImapEventLogSample(instanceName: string, folder: string) {
+  return [
+    {
+      id: `AA-${Math.floor(200000 + Math.random() * 200000)}`,
+      timestamp: Date.now() - 18 * 60 * 1000,
+      triggeredBy: 'D',
+      event: {
+        integration: 'IMAP',
+        instance_name: instanceName,
+        folder,
+        subject: 'URGENT: Verify payment details',
+        from: 'spoofed-vendor@example.com',
+        to: 'soc@example.com',
+        message_id: `<msg-${Math.floor(1000 + Math.random() * 9000)}@mail.example.com>`,
+        received_at: new Date(Date.now() - 18 * 60 * 1000).toISOString(),
+        body_preview: 'Please review attached invoice and confirm transfer by EOD.',
+      },
+    },
+    {
+      id: `AA-${Math.floor(200000 + Math.random() * 200000)}`,
+      timestamp: Date.now() - 66 * 60 * 1000,
+      triggeredBy: 'D',
+      event: {
+        integration: 'IMAP',
+        instance_name: instanceName,
+        folder,
+        subject: 'Security alert: New login',
+        from: 'alerts@identity-provider.com',
+        to: 'soc@example.com',
+        message_id: `<msg-${Math.floor(1000 + Math.random() * 9000)}@mail.example.com>`,
+        received_at: new Date(Date.now() - 66 * 60 * 1000).toISOString(),
+        body_preview: 'A new login was detected from an unrecognized device.',
+      },
     },
   ]
 }
@@ -2884,6 +2922,14 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const [triggerIntegrationName, setTriggerIntegrationName] = useState(String(node.data?.triggerIntegrationName || availableTriggerIntegrations[0] || 'Okta'))
   const [triggerIntegrationInstance, setTriggerIntegrationInstance] = useState(String(node.data?.triggerIntegrationInstance || `${String(node.data?.triggerIntegrationName || availableTriggerIntegrations[0] || 'Okta').replace(/\s+/g, '_')}_Demo`))
   const [triggerAcceptRawHttp, setTriggerAcceptRawHttp] = useState(Boolean(node.data?.triggerAcceptRawHttp))
+  const [showImapInstanceModal, setShowImapInstanceModal] = useState(false)
+  const [imapInstanceName, setImapInstanceName] = useState(String(node.data?.imapInstanceName || 'torq-imap-demo'))
+  const [imapServerPort, setImapServerPort] = useState(String(node.data?.imapServerPort || 'imap.gmail.com:993'))
+  const [imapUsername, setImapUsername] = useState(String(node.data?.imapUsername || 'user@gmail.com'))
+  const [imapPassword, setImapPassword] = useState(String(node.data?.imapPassword || ''))
+  const [imapPasswordVisible, setImapPasswordVisible] = useState(false)
+  const [imapInterval, setImapInterval] = useState<(typeof IMAP_FETCH_INTERVALS)[number]>(String(node.data?.imapInterval || '1m') as (typeof IMAP_FETCH_INTERVALS)[number])
+  const [imapFolder, setImapFolder] = useState(String(node.data?.imapFolder || 'INBOX'))
   const [scheduleIntervalValue, setScheduleIntervalValue] = useState(String(node.data?.scheduleIntervalValue || '1'))
   const [scheduleIntervalUnit, setScheduleIntervalUnit] = useState<(typeof SCHEDULE_INTERVAL_UNITS)[number]>(String(node.data?.scheduleIntervalUnit || 'Hour') as (typeof SCHEDULE_INTERVAL_UNITS)[number])
   const [scheduleRunTime, setScheduleRunTime] = useState(String(node.data?.scheduleRunTime || '09:00'))
@@ -3261,6 +3307,14 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
     setTriggerIntegrationName(String(node.data?.triggerIntegrationName || availableTriggerIntegrations[0] || 'Okta'))
     setTriggerIntegrationInstance(String(node.data?.triggerIntegrationInstance || `${String(node.data?.triggerIntegrationName || availableTriggerIntegrations[0] || 'Okta').replace(/\s+/g, '_')}_Demo`))
     setTriggerAcceptRawHttp(Boolean(node.data?.triggerAcceptRawHttp))
+    setShowImapInstanceModal(false)
+    setImapInstanceName(String(node.data?.imapInstanceName || 'torq-imap-demo'))
+    setImapServerPort(String(node.data?.imapServerPort || 'imap.gmail.com:993'))
+    setImapUsername(String(node.data?.imapUsername || 'user@gmail.com'))
+    setImapPassword(String(node.data?.imapPassword || ''))
+    setImapPasswordVisible(false)
+    setImapInterval(String(node.data?.imapInterval || '1m') as (typeof IMAP_FETCH_INTERVALS)[number])
+    setImapFolder(String(node.data?.imapFolder || 'INBOX'))
     setScheduleIntervalValue(String(node.data?.scheduleIntervalValue || '1'))
     setScheduleIntervalUnit(String(node.data?.scheduleIntervalUnit || 'Hour') as (typeof SCHEDULE_INTERVAL_UNITS)[number])
     setScheduleRunTime(String(node.data?.scheduleRunTime || '09:00'))
@@ -4058,14 +4112,29 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                               value={triggerIntegrationName}
                               onChange={(event) => {
                                 const value = event.target.value
-                                const defaultInstance = `${value.replace(/\s+/g, '_')}_Demo`
+                                const defaultInstance = value === 'IMAP' ? (imapInstanceName || 'torq-imap-demo') : `${value.replace(/\s+/g, '_')}_Demo`
                                 setTriggerIntegrationName(value)
                                 setTriggerIntegrationInstance(defaultInstance)
+                                if (value === 'IMAP') {
+                                  setTriggerAcceptRawHttp(false)
+                                  setShowImapInstanceModal(true)
+                                }
                                 persistNodeData({
                                   triggerIntegrationName: value,
                                   triggerIntegrationInstance: defaultInstance,
                                   label: value,
                                   subtext: 'Integration',
+                                  ...(value === 'IMAP'
+                                    ? {
+                                        triggerAcceptRawHttp: false,
+                                        imapInstanceName: defaultInstance,
+                                        imapServerPort: imapServerPort || 'imap.gmail.com:993',
+                                        imapUsername,
+                                        imapPassword,
+                                        imapInterval,
+                                        imapFolder: imapFolder || 'INBOX',
+                                      }
+                                    : {}),
                                 })
                               }}
                               style={{ width: '100%', appearance: 'none', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
@@ -4080,47 +4149,225 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
 
                         <div style={{ marginBottom: 14 }}>
                           <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Integration instance</div>
-                          <input
-                            value={triggerIntegrationInstance}
-                            onChange={(event) => {
-                              const value = event.target.value
-                              setTriggerIntegrationInstance(value)
-                              persistNodeData({ triggerIntegrationInstance: value })
-                            }}
-                            placeholder="Okta_Demo"
-                            style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
-                          />
+                          {triggerIntegrationName === 'IMAP' ? (
+                            <div style={{ display: 'flex', gap: 8 }}>
+                              <input
+                                value={triggerIntegrationInstance}
+                                readOnly
+                                style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                              />
+                              <button
+                                onClick={() => setShowImapInstanceModal(true)}
+                                style={{ background: '#17191e', border: '1px solid #333842', color: '#e2e8f0', borderRadius: 6, padding: '10px 12px', fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                              >
+                                Add Instance
+                              </button>
+                            </div>
+                          ) : (
+                            <input
+                              value={triggerIntegrationInstance}
+                              onChange={(event) => {
+                                const value = event.target.value
+                                setTriggerIntegrationInstance(value)
+                                persistNodeData({ triggerIntegrationInstance: value })
+                              }}
+                              placeholder="Okta_Demo"
+                              style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                            />
+                          )}
                         </div>
+
+                        {triggerIntegrationName === 'IMAP' && (
+                          <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.6 }}>
+                            Configure IMAP instance details (server, credentials, interval, folder), then send a test email and check Event Log after the fetch interval.
+                            <br />
+                            Use app passwords for Gmail accounts.
+                          </div>
+                        )}
 
                         <div style={{ marginBottom: 14 }}>
                           <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Webhook URL</div>
-                          <div style={{ background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                            {triggerUrls.webhook}
-                          </div>
-                          <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
-                            <button
-                              onClick={() => copyText(triggerUrls.webhook)}
-                              style={{ background: '#17191e', border: '1px solid #333842', color: '#e2e8f0', borderRadius: 6, padding: '6px 10px', fontSize: 11, cursor: 'pointer' }}
-                            >
-                              <i className="fa-regular fa-copy" style={{ marginRight: 6 }} /> Copy URL
-                            </button>
-                          </div>
+                          {triggerIntegrationName === 'IMAP' ? (
+                            <div style={{ background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#9ca3af', fontSize: 12, lineHeight: 1.6 }}>
+                              IMAP triggers poll mailbox events directly. No webhook URL is required.
+                            </div>
+                          ) : (
+                            <>
+                              <div style={{ background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, fontFamily: 'monospace', wordBreak: 'break-all' }}>
+                                {triggerUrls.webhook}
+                              </div>
+                              <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
+                                <button
+                                  onClick={() => copyText(triggerUrls.webhook)}
+                                  style={{ background: '#17191e', border: '1px solid #333842', color: '#e2e8f0', borderRadius: 6, padding: '6px 10px', fontSize: 11, cursor: 'pointer' }}
+                                >
+                                  <i className="fa-regular fa-copy" style={{ marginRight: 6 }} /> Copy URL
+                                </button>
+                              </div>
+                            </>
+                          )}
                         </div>
 
-                        <div style={{ marginBottom: 16 }}>
-                          <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#e2e8f0', fontSize: 12, cursor: 'pointer' }}>
-                            <input
-                              type="checkbox"
-                              checked={triggerAcceptRawHttp}
-                              onChange={(event) => {
-                                const next = event.target.checked
-                                setTriggerAcceptRawHttp(next)
-                                persistNodeData({ triggerAcceptRawHttp: next })
-                              }}
-                            />
-                            Accept raw HTTP request payload
-                          </label>
-                        </div>
+                        {triggerIntegrationName !== 'IMAP' && (
+                          <div style={{ marginBottom: 16 }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#e2e8f0', fontSize: 12, cursor: 'pointer' }}>
+                              <input
+                                type="checkbox"
+                                checked={triggerAcceptRawHttp}
+                                onChange={(event) => {
+                                  const next = event.target.checked
+                                  setTriggerAcceptRawHttp(next)
+                                  persistNodeData({ triggerAcceptRawHttp: next })
+                                }}
+                              />
+                              Accept raw HTTP request payload
+                            </label>
+                          </div>
+                        )}
+
+                        {triggerIntegrationName === 'IMAP' && (
+                          <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.6 }}>
+                            IMAP event context examples:<br />
+                            <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ $.event.subject }}'}</span><br />
+                            <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ $.event.from }}'}</span><br />
+                            <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ $.event.body_preview }}'}</span>
+                          </div>
+                        )}
+
+                        {showImapInstanceModal && triggerIntegrationName === 'IMAP' && (
+                          <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.6)', zIndex: 90, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+                            <div style={{ width: 'min(760px, 92vw)', maxHeight: '86vh', overflow: 'auto', background: '#2a2d33', border: '1px solid #3a3f47', borderRadius: 12 }}>
+                              <div style={{ padding: '16px 18px', borderBottom: '1px solid #3a3f47', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <div style={{ color: '#fff', fontSize: 38, fontWeight: 500 }}>New Instance</div>
+                                <button
+                                  onClick={() => setShowImapInstanceModal(false)}
+                                  style={{ background: 'transparent', border: 'none', color: '#e2e8f0', cursor: 'pointer' }}
+                                >
+                                  <X size={20} />
+                                </button>
+                              </div>
+
+                              <div style={{ padding: 16, display: 'grid', gap: 12 }}>
+                                <div>
+                                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 6 }}>Instance name</div>
+                                  <input
+                                    value={imapInstanceName}
+                                    onChange={(event) => setImapInstanceName(event.target.value)}
+                                    placeholder="torq-imap-demo"
+                                    style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                                  />
+                                </div>
+
+                                <div>
+                                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 6 }}>Server (server:port)</div>
+                                  <input
+                                    value={imapServerPort}
+                                    onChange={(event) => setImapServerPort(event.target.value)}
+                                    placeholder="imap.gmail.com:993"
+                                    style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                                  />
+                                </div>
+
+                                <div>
+                                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 6 }}>User</div>
+                                  <input
+                                    value={imapUsername}
+                                    onChange={(event) => setImapUsername(event.target.value)}
+                                    placeholder="user@gmail.com"
+                                    style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                                  />
+                                </div>
+
+                                <div>
+                                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 6 }}>Password</div>
+                                  <div style={{ position: 'relative' }}>
+                                    <input
+                                      type={imapPasswordVisible ? 'text' : 'password'}
+                                      value={imapPassword}
+                                      onChange={(event) => setImapPassword(event.target.value)}
+                                      placeholder="App password"
+                                      style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 38px 10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                                    />
+                                    <button
+                                      onClick={() => setImapPasswordVisible((prev) => !prev)}
+                                      style={{ position: 'absolute', right: 10, top: 10, background: 'transparent', border: 'none', color: '#9ca3af', cursor: 'pointer' }}
+                                    >
+                                      <i className={`fa-regular ${imapPasswordVisible ? 'fa-eye-slash' : 'fa-eye'}`} />
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 6 }}>Interval (1m, 30m, 2h, 1d)</div>
+                                  <div style={{ position: 'relative' }}>
+                                    <select
+                                      value={imapInterval}
+                                      onChange={(event) => setImapInterval(event.target.value as (typeof IMAP_FETCH_INTERVALS)[number])}
+                                      style={{ width: '100%', appearance: 'none', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                                    >
+                                      {IMAP_FETCH_INTERVALS.map((interval) => (
+                                        <option key={interval} value={interval}>{interval}</option>
+                                      ))}
+                                    </select>
+                                    <ChevronDown size={14} color="#9ca3af" style={{ position: 'absolute', right: 12, top: 12, pointerEvents: 'none' }} />
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 6 }}>Folder</div>
+                                  <input
+                                    value={imapFolder}
+                                    onChange={(event) => setImapFolder(event.target.value)}
+                                    placeholder="INBOX"
+                                    style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                                  />
+                                </div>
+                              </div>
+
+                              <div style={{ borderTop: '1px solid #3a3f47', padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <button
+                                  onClick={() => window.open('https://support.google.com/accounts/answer/185833', '_blank')}
+                                  style={{ background: 'transparent', border: 'none', color: '#cbd5e1', fontSize: 12, cursor: 'pointer', textDecoration: 'underline' }}
+                                >
+                                  View documentation
+                                </button>
+                                <div style={{ display: 'flex', gap: 10 }}>
+                                  <button
+                                    onClick={() => setShowImapInstanceModal(false)}
+                                    style={{ background: '#06090f', border: '1px solid #e2e8f0', color: '#fff', borderRadius: 8, padding: '8px 16px', fontSize: 13, cursor: 'pointer' }}
+                                  >
+                                    Cancel
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      const instance = imapInstanceName.trim() || 'torq-imap-demo'
+                                      const folder = imapFolder.trim() || 'INBOX'
+                                      const sampleLog = buildImapEventLogSample(instance, folder)
+                                      setTriggerIntegrationInstance(instance)
+                                      setShowImapInstanceModal(false)
+                                      setTriggerEventLog(sampleLog as any)
+                                      setExpandedEventLogId(sampleLog[0]?.id || null)
+                                      persistNodeData({
+                                        triggerIntegrationInstance: instance,
+                                        imapInstanceName: instance,
+                                        imapServerPort: imapServerPort.trim() || 'imap.gmail.com:993',
+                                        imapUsername,
+                                        imapPassword,
+                                        imapInterval,
+                                        imapFolder: folder,
+                                        triggerEventLog: sampleLog,
+                                        expandedEventLogId: sampleLog[0]?.id || '',
+                                      })
+                                    }}
+                                    style={{ background: '#e5e7eb', border: 'none', color: '#111827', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+                                  >
+                                    Add
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </>
                     )}
 

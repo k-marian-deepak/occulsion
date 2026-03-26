@@ -132,6 +132,7 @@ export const DB: Integration[] = [
   {n:'Google Workspace',cat:'Utilities',fa:'fa-brands fa-google',ib:'rgba(66,133,244,.1)',ic:'#4285f4',t:'step',c:false,d:'Gmail, Drive, Calendar, and Docs automation.',auth:['Service Account JSON']},
   {n:'GitHub',cat:'Utilities',fa:'fa-brands fa-github',ib:'rgba(120,120,120,.1)',ic:'#aaa',t:'both',c:false,d:'GitHub Issues, Actions, and PRs. Trigger on events or manage repos.',auth:['Personal Access Token']},
   {n:'GitLab',cat:'Utilities',fa:'fa-brands fa-gitlab',ib:'rgba(252,108,12,.1)',ic:'#fc6c0c',t:'both',c:false,d:'GitLab issues and CI/CD. Trigger on events or manage pipelines.',auth:['Access Token','Base URL']},
+  {n:'IMAP',cat:'Utilities',fa:'fa-solid fa-envelope-open-text',ib:'rgba(79,110,247,.1)',ic:'#4f6ef7',t:'trigger',c:false,d:'Monitor folders in an IMAP mailbox and trigger workflows on matching incoming emails.',auth:['Server:Port','Username','Password','Folder','Interval']},
   {n:'Postgres',cat:'Utilities',fa:'fa-solid fa-database',ib:'rgba(79,110,247,.1)',ic:'#4f6ef7',t:'step',c:false,d:'Query PostgreSQL databases from workflow steps.',auth:['Host','Port','User','Password','Database']},
   {n:'MySQL',cat:'Utilities',fa:'fa-solid fa-database',ib:'rgba(0,120,212,.1)',ic:'#0078d4',t:'step',c:false,d:'Query MySQL databases from workflow steps.',auth:['Host','Port','User','Password','Database']},
   {n:'Redis',cat:'Utilities',fa:'fa-solid fa-r',ib:'rgba(224,60,60,.1)',ic:'#e03c3c',t:'step',c:false,d:'Read and write to Redis. State management across workflow executions.',auth:['Host','Port','Password']},
@@ -152,7 +153,7 @@ export function getIntegrationLogo(name: string) {
     'Jira': 'atlassian.com', 'PagerDuty': 'pagerduty.com', 'ServiceNow': 'servicenow.com', 'Freshservice': 'freshworks.com', 'Zendesk': 'zendesk.com', 'Linear': 'linear.app', 'Asana': 'asana.com', 'Monday.com': 'monday.com', 
     'Slack': 'slack.com', 'Microsoft Teams': 'microsoft.com', 'Email (SMTP)': 'gmail.com', 'Twilio': 'twilio.com', 'Opsgenie': 'opsgenie.com', 'Google Chat': 'google.com', 'Discord': 'discord.com', 'Webex': 'webex.com', 'Zoom': 'zoom.us', 
     'TheHive': 'thehive-project.org', 'IBM SOAR': 'ibm.com', 'Tines': 'tines.com', 'Demisto XSOAR': 'paloaltonetworks.com', 'Siemplify': 'google.com', 
-    'HTTP Request': 'httpwg.org', 'Python Script': 'python.org', 'Send Email': 'gmail.com', 'Google Workspace': 'google.com', 'GitHub': 'github.com', 'GitLab': 'gitlab.com', 'Postgres': 'postgresql.org', 'MySQL': 'mysql.com', 'Redis': 'redis.io', 'OpenAI': 'openai.com', 'Anthropic Claude': 'anthropic.com', 'Google Gemini': 'google.com', 'Azure OpenAI': 'microsoft.com', 'Ollama': 'ollama.com'
+    'HTTP Request': 'httpwg.org', 'Python Script': 'python.org', 'Send Email': 'gmail.com', 'Google Workspace': 'google.com', 'GitHub': 'github.com', 'GitLab': 'gitlab.com', 'IMAP': 'imap.gmail.com', 'Postgres': 'postgresql.org', 'MySQL': 'mysql.com', 'Redis': 'redis.io', 'OpenAI': 'openai.com', 'Anthropic Claude': 'anthropic.com', 'Google Gemini': 'google.com', 'Azure OpenAI': 'microsoft.com', 'Ollama': 'ollama.com'
   }
   const domain = domains[name] || (name.toLowerCase().replace(/\s+/g, '') + '.com')
   return `https://logo.clearbit.com/${domain}`
