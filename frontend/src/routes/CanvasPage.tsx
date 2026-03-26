@@ -50,6 +50,8 @@ type WorkflowRunEntry = {
   source: 'mock-output' | 'selected-step' | 'resend-event' | 'sync-execution' | 'async-execution'
   executedBy: string
   nodeLabel?: string
+  skippedDisabledOperators?: number
+  skippedOperatorLabels?: string[]
 }
 
 type TriggerInputParameter = {
@@ -71,8 +73,43 @@ type CustomContainerEnvParameter = {
   id: string
   key: string
   value: string
+  valueType: 'string' | 'number' | 'boolean' | 'file'
   required: boolean
 }
+
+type OperatorTemplate = {
+  id: string
+  label: string
+  description: string
+  iconClass: string
+}
+
+const OPERATOR_TEMPLATES: OperatorTemplate[] = [
+  {
+    id: 'if-else',
+    label: 'If / Else',
+    description: 'Split execution into true/false branches based on a condition.',
+    iconClass: 'fa-solid fa-code-branch',
+  },
+  {
+    id: 'exit-workflow',
+    label: 'Exit Workflow',
+    description: 'Stop execution and optionally return a synchronous response payload.',
+    iconClass: 'fa-solid fa-right-from-bracket',
+  },
+  {
+    id: 'for-each',
+    label: 'For Each',
+    description: 'Iterate over a list and run connected steps for each element.',
+    iconClass: 'fa-solid fa-repeat',
+  },
+  {
+    id: 'parallel',
+    label: 'Parallel',
+    description: 'Run child branches in parallel and continue when all are done.',
+    iconClass: 'fa-solid fa-diagram-project',
+  },
+]
 
 const TEST_TRIGGER_EVENTS = [
   { id: 'evt-1', label: 'Previous trigger event - Email phishing alert' },
@@ -395,9 +432,41 @@ function createDefaultCustomContainerEnvParameters(commandValue = 'such command,
       id: 'env-command',
       key: 'COMMAND',
       value: commandValue,
+      valueType: 'string',
       required: false,
     },
   ]
+}
+
+function createStepNodeFromAction(action: { n: string; cat: string }, position: { x: number; y: number }) {
+  return {
+    id: `node-${Date.now()}`,
+    type: 'step',
+    position,
+    data: {
+      label: action.n,
+      subtext: action.cat,
+      iconUrl: getIntegrationLogo(action.n),
+    },
+  }
+}
+
+function createOperatorNodeFromTemplate(template: OperatorTemplate, position: { x: number; y: number }) {
+  const isExit = /exit/i.test(template.label)
+  return {
+    id: `operator-${Date.now()}`,
+    type: 'operator',
+    position,
+    data: {
+      label: template.label,
+      subtext: 'Operator',
+      description: template.description,
+      operatorTemplateId: template.id,
+      syncStatusCode: isExit ? '200' : undefined,
+      syncHeaders: isExit ? '{\n  "Content-Type": "application/json"\n}' : undefined,
+      syncBody: isExit ? '{\n  "result": "ok"\n}' : undefined,
+    },
+  }
 }
 
 function triggerNodeLabelForType(
@@ -620,6 +689,7 @@ export function CanvasPage() {
   const addCase = useCasesStore(s => s.addCase)
   
   const [search, setSearch] = useState('')
+  const [operatorSearch, setOperatorSearch] = useState('')
   const [editingStep, setEditingStep] = useState<any | null>(null)
   const [publishOpen, setPublishOpen] = useState(false)
   const [publishMenuOpen, setPublishMenuOpen] = useState(false)
@@ -642,6 +712,7 @@ export function CanvasPage() {
   const [executeWorkflowValues, setExecuteWorkflowValues] = useState<Record<string, string>>({})
   const [executeWorkflowFiles, setExecuteWorkflowFiles] = useState<Record<string, { fileName: string; value: string }>>({})
   const [executeWorkflowErrors, setExecuteWorkflowErrors] = useState<Record<string, string>>({})
+  const [viewportWidth, setViewportWidth] = useState<number>(typeof window !== 'undefined' ? window.innerWidth : 1920)
   const [activeRunId, setActiveRunId] = useState<string | null>(null)
   const [runLogEntries, setRunLogEntries] = useState<WorkflowRunEntry[]>([
     {
@@ -681,10 +752,16 @@ export function CanvasPage() {
 
   const currentWorkflow = workflows.find((item) => item.id === currentWorkflowId)
   const triggerNode = nodes.find((item) => item.type === 'trigger')
+  const disabledOperatorNodes = nodes.filter(
+    (item) => item.type === 'operator' && Boolean(item.data?.disabled),
+  )
+  const disabledOperatorLabels = disabledOperatorNodes.map((item) => String(item.data?.label || item.id))
   const triggerNodeType = String(triggerNode?.data?.triggerType || 'on-demand')
   const onDemandTriggerInputParameters: TriggerInputParameter[] = Array.isArray(triggerNode?.data?.triggerInputParameters)
     ? (triggerNode?.data?.triggerInputParameters as TriggerInputParameter[])
     : []
+  const isCompactTopHeader = viewportWidth < 1620
+  const isVeryCompactTopHeader = viewportWidth < 1440
 
   const statusLabel =
     currentWorkflow?.status === 'published_enabled'
@@ -940,6 +1017,7 @@ export function CanvasPage() {
     }
 
     const selectedEvent = TEST_TRIGGER_EVENTS.find((item) => item.id === selectedTriggerEventId)
+    const skippedDisabledOperators = disabledOperatorNodes.length
     const entry = buildRunEntry({
       mode: 'test',
       source,
@@ -950,6 +1028,8 @@ export function CanvasPage() {
           : eventPayload
           ? 'On-demand trigger execution'
           : selectedEvent?.label,
+      skippedDisabledOperators,
+      skippedOperatorLabels: disabledOperatorLabels,
     })
     appendRunLogEntry(entry)
     setTestRunMenuOpen(false)
@@ -1008,6 +1088,15 @@ export function CanvasPage() {
       return
     }
 
+    if (
+      source === 'selected-step' &&
+      selectedNode?.type === 'operator' &&
+      Boolean(selectedNode.data?.disabled)
+    ) {
+      window.alert('Selected operator is disabled. Enable it before running from selected step.')
+      return
+    }
+
     const shouldPromptForOnDemandInputs =
       triggerNodeType === 'on-demand' && onDemandTriggerInputParameters.length > 0
     if (shouldPromptForOnDemandInputs) {
@@ -1031,6 +1120,8 @@ export function CanvasPage() {
       source,
       executedBy: 'Owner',
       nodeLabel: String(selectedNode?.data?.label || currentWorkflow.name),
+      skippedDisabledOperators: disabledOperatorNodes.length,
+      skippedOperatorLabels: disabledOperatorLabels,
     })
     appendRunLogEntry(entry)
     setProductionExecMenuOpen(false)
@@ -1091,6 +1182,12 @@ export function CanvasPage() {
     }
   }, [])
 
+  useEffect(() => {
+    const onResize = () => setViewportWidth(window.innerWidth)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
   const onDragStart = (e: React.DragEvent, action: any) => {
     e.dataTransfer.setData('application/reactflow', JSON.stringify(action))
     e.dataTransfer.effectAllowed = 'move'
@@ -1099,6 +1196,10 @@ export function CanvasPage() {
   const visible = DB.filter(a =>
     a.n.toLowerCase().includes(search.toLowerCase()) ||
     a.cat.toLowerCase().includes(search.toLowerCase())
+  )
+  const filteredOperators = OPERATOR_TEMPLATES.filter((item) =>
+    item.label.toLowerCase().includes(operatorSearch.toLowerCase()) ||
+    item.description.toLowerCase().includes(operatorSearch.toLowerCase()),
   )
 
   const todayRuns = runLogEntries.filter((item) => {
@@ -1156,6 +1257,52 @@ export function CanvasPage() {
               </button>
             </div>
 
+            <div style={{ padding: '0 16px 14px', borderBottom: '1px solid #2a2e35', marginBottom: 14 }}>
+              <div style={{ color: '#e2e8f0', fontSize: 12, fontWeight: 700, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                Operators
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#252830', border: '1px solid #333842', borderRadius: 6, padding: '6px 10px', marginBottom: 8 }}>
+                <i className="fa-solid fa-wand-magic-sparkles" style={{ color: '#9ca3af', fontSize: 11 }} />
+                <input
+                  value={operatorSearch}
+                  onChange={(event) => setOperatorSearch(event.target.value)}
+                  style={{ background: 'none', border: 'none', outline: 'none', color: '#fff', fontSize: 12, width: '100%', fontFamily: 'inherit' }}
+                  placeholder="Search operators"
+                />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 172, overflowY: 'auto' }}>
+                {filteredOperators.map((operator) => (
+                  <div
+                    key={operator.id}
+                    draggable
+                    onDragStart={(event) => onDragStart(event, { kind: 'operator', ...operator })}
+                    title={operator.description}
+                    style={{
+                      background: '#0e1015',
+                      border: '1px solid #2a2e35',
+                      borderRadius: 6,
+                      padding: '8px 10px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      cursor: 'grab',
+                    }}
+                  >
+                    <div style={{ width: 26, height: 26, borderRadius: 7, background: '#17191e', border: '1px solid #333842', color: '#facc15', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <i className={operator.iconClass} style={{ fontSize: 11 }} />
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ color: '#fff', fontSize: 12, fontWeight: 600, marginBottom: 2 }}>{operator.label}</div>
+                      <div style={{ color: '#9ca3af', fontSize: 10, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{operator.description}</div>
+                    </div>
+                  </div>
+                ))}
+                {filteredOperators.length === 0 && (
+                  <div style={{ color: '#6b7280', fontSize: 11, padding: '6px 2px' }}>No matching operators</div>
+                )}
+              </div>
+            </div>
+
             {/* Tabs */}
             <div style={{ display: 'flex', padding: '0 16px', borderBottom: '1px solid #2a2e35', marginBottom: 16, overflowX: 'auto' }}>
               {[
@@ -1182,7 +1329,7 @@ export function CanvasPage() {
                 <div
                   key={i}
                   draggable
-                  onDragStart={(e) => onDragStart(e, a)}
+                  onDragStart={(e) => onDragStart(e, { kind: 'step', ...a })}
                   style={{
                     background: '#0e1015', border: '1px solid #2a2e35', borderRadius: 6,
                     padding: '12px', display: 'flex', alignItems: 'center', gap: 14,
@@ -1268,15 +1415,17 @@ export function CanvasPage() {
           <WorkflowCanvasWrapper addNode={addNode as any} onPrintReady={registerPrintFitView} onAddAnnotation={addAnnotationAtPosition}>
             {/* Top Header Toggle & Breadcrumb */}
             <Panel position="top-left" className="workflow-editor-chrome" style={{ margin: 0, width: '100%', pointerEvents: 'none', zIndex: 10 }}>
-              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 72, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <div style={{ position: 'absolute', left: 24, pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: 12, color: '#e2e8f0', fontSize: 14, fontWeight: 500 }}>
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 126, display: 'flex', alignItems: 'flex-start', justifyContent: 'center' }}>
+                <div style={{ position: 'absolute', left: 24, top: 78, pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: 12, color: '#e2e8f0', fontSize: 14, fontWeight: 500, maxWidth: isCompactTopHeader ? '280px' : '520px', minWidth: 0 }}>
                   <div style={{ width: 28, height: 28, background: '#fff', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <i className="fa-solid fa-code-branch" style={{ color: '#000', fontSize: 14 }} />
                   </div>
-                  socrates-playground <span style={{color: '#9ca3af'}}>/</span> Create a Phishing Demo Case
+                  <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    socrates-playground <span style={{color: '#9ca3af'}}>/</span> Create a Phishing Demo Case
+                  </div>
                 </div>
                 
-                <div style={{ pointerEvents: 'auto', background: '#1c1e23', border: '1px solid #333842', borderRadius: 8, padding: 4, display: 'flex', gap: 4 }}>
+                <div style={{ pointerEvents: 'auto', marginTop: 10, background: '#1c1e23', border: '1px solid #333842', borderRadius: 8, padding: 4, display: 'flex', gap: 4 }}>
                   <button 
                     onClick={() => setViewMode('designer')}
                     style={{ padding: '6px 20px', background: viewMode === 'designer' ? '#333842' : 'transparent', border: 'none', borderRadius: 6, color: viewMode === 'designer' ? '#fff' : '#9ca3af', fontSize: 13, fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s ease' }}>
@@ -1293,25 +1442,29 @@ export function CanvasPage() {
                   const activeRun = runLogEntries.find((item) => item.id === activeRunId)
                   if (!activeRun || activeRun.status !== 'failed') return null
                   return (
-                    <div style={{ position: 'absolute', top: 48, left: '50%', transform: 'translateX(-50%)', pointerEvents: 'none', background: 'rgba(127,29,29,0.9)', border: '1px solid #b91c1c', borderRadius: 999, color: '#fecaca', fontSize: 11, fontWeight: 600, padding: '6px 12px' }}>
+                    <div style={{ position: 'absolute', top: 56, left: '50%', transform: 'translateX(-50%)', pointerEvents: 'none', background: 'rgba(127,29,29,0.9)', border: '1px solid #b91c1c', borderRadius: 999, color: '#fecaca', fontSize: 11, fontWeight: 600, padding: '6px 12px' }}>
                       Failed step highlighted: {activeRun.nodeLabel || 'Unknown step'}
                     </div>
                   )
                 })()}
 
-                <div style={{ position: 'absolute', right: 24, pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <select
-                    value={currentUserRole}
-                    onChange={(e) => setCurrentUserRole(e.target.value as UserRole)}
-                    style={{ background: '#1c1e23', border: '1px solid #333842', color: '#e2e8f0', borderRadius: 6, padding: '7px 10px', fontSize: 12 }}
-                  >
-                    <option value="creator">Creator</option>
-                    <option value="contributor">Contributor</option>
-                    <option value="owner">Owner</option>
-                  </select>
-                  <div style={{ fontSize: 12, color: '#9ca3af', padding: '6px 10px', border: '1px solid #333842', borderRadius: 6, background: '#1c1e23' }}>
-                    {statusLabel}
-                  </div>
+                <div style={{ position: 'absolute', right: 24, top: 70, pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: isCompactTopHeader ? 8 : 12, maxWidth: isCompactTopHeader ? '66vw' : '72vw' }}>
+                  {!isCompactTopHeader && (
+                    <select
+                      value={currentUserRole}
+                      onChange={(e) => setCurrentUserRole(e.target.value as UserRole)}
+                      style={{ background: '#1c1e23', border: '1px solid #333842', color: '#e2e8f0', borderRadius: 6, padding: '7px 10px', fontSize: 12 }}
+                    >
+                      <option value="creator">Creator</option>
+                      <option value="contributor">Contributor</option>
+                      <option value="owner">Owner</option>
+                    </select>
+                  )}
+                  {!isVeryCompactTopHeader && (
+                    <div style={{ fontSize: 12, color: '#9ca3af', padding: '6px 10px', border: '1px solid #333842', borderRadius: 6, background: '#1c1e23', whiteSpace: 'nowrap' }}>
+                      {statusLabel}
+                    </div>
+                  )}
                   <button onClick={saveDraft} style={{ background: 'transparent', color: '#fff', border: '1px solid #4b5563', borderRadius: 6, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
                     <i className="fa-regular fa-floppy-disk" style={{ fontSize: 12, marginRight: 6 }} /> Save
                   </button>
@@ -1938,6 +2091,7 @@ function RunLogDetailsPanel({ run }: { run: WorkflowRunEntry | null }) {
                     source: RUN_SOURCE_LABEL[run.source],
                     status: run.status,
                     step: run.nodeLabel || null,
+                    skipped_disabled_operators: run.skippedDisabledOperators || 0,
                   },
                 },
                 null,
@@ -1948,11 +2102,12 @@ function RunLogDetailsPanel({ run }: { run: WorkflowRunEntry | null }) {
                 {
                   trigger_event: 'Selected previous event payload',
                   selected_step: run.source === 'selected-step' ? run.nodeLabel : null,
+                  skipped_operators: run.skippedOperatorLabels || [],
                 },
                 null,
                 2,
               )
-            : `mode=${run.mode}\nsource=${run.source}\nstatus=${run.status}\nnote=${run.status === 'failed' ? 'Failure step highlighted on canvas.' : 'Execution completed successfully.'}`}
+            : `mode=${run.mode}\nsource=${run.source}\nstatus=${run.status}\nskipped_disabled_operators=${run.skippedDisabledOperators || 0}\nnote=${run.status === 'failed' ? 'Failure step highlighted on canvas.' : 'Execution completed successfully.'}`}
         </div>
       </div>
     </div>
@@ -2070,6 +2225,17 @@ function DropZone({
       }
     | null
   >(null)
+  const [quickBuildMenu, setQuickBuildMenu] = useState<
+    | {
+        screenX: number
+        screenY: number
+        flowX: number
+        flowY: number
+      }
+    | null
+  >(null)
+  const [quickBuildTab, setQuickBuildTab] = useState<'operators' | 'actions' | 'co-builder'>('operators')
+  const [quickBuildSearch, setQuickBuildSearch] = useState('')
 
   const onDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -2089,16 +2255,9 @@ function DropZone({
       position = screenToFlowPosition({ x: e.clientX, y: e.clientY })
     }
 
-    const newNode = {
-      id: `node-${Date.now()}`,
-      type: 'step',
-      position,
-      data: { 
-        label: action.n, 
-        subtext: action.cat,
-        iconUrl: getIntegrationLogo(action.n),
-      },
-    }
+    const newNode = action.kind === 'operator'
+      ? createOperatorNodeFromTemplate(action as OperatorTemplate, position)
+      : createStepNodeFromAction(action, position)
 
     addNode(newNode)
   }, [addNode, screenToFlowPosition])
@@ -2126,7 +2285,10 @@ function DropZone({
       onDragOver={onDragOver}
       onDrop={onDrop}
       onContextMenu={onContextMenu}
-      onClick={() => setContextMenu(null)}
+      onClick={() => {
+        setContextMenu(null)
+        setQuickBuildMenu(null)
+      }}
     >
       <WorkflowCanvas>
         <PrintFitBridge onPrintReady={onPrintReady} />
@@ -2168,6 +2330,141 @@ function DropZone({
           >
             <i className="fa-regular fa-note-sticky" style={{ marginRight: 8 }} /> Add annotation
           </button>
+          <button
+            onClick={() => {
+              setQuickBuildSearch('')
+              setQuickBuildTab('operators')
+              setQuickBuildMenu({
+                screenX: contextMenu.screenX + 176,
+                screenY: contextMenu.screenY,
+                flowX: contextMenu.flowX,
+                flowY: contextMenu.flowY,
+              })
+              setContextMenu(null)
+            }}
+            style={{
+              width: '100%',
+              background: 'transparent',
+              border: 'none',
+              borderRadius: 6,
+              color: '#e2e8f0',
+              textAlign: 'left',
+              padding: '8px 10px',
+              cursor: 'pointer',
+              fontSize: 13,
+            }}
+          >
+            <i className="fa-solid fa-wand-magic-sparkles" style={{ marginRight: 8 }} /> QuickBuild
+          </button>
+        </div>
+      )}
+
+      {quickBuildMenu && (
+        <div
+          className="nodrag"
+          style={{
+            position: 'fixed',
+            top: quickBuildMenu.screenY,
+            left: quickBuildMenu.screenX,
+            background: '#1c1e23',
+            border: '1px solid #333842',
+            borderRadius: 8,
+            width: 300,
+            padding: 10,
+            boxShadow: '0 16px 40px rgba(0,0,0,0.45)',
+            zIndex: 1200,
+          }}
+        >
+          <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+            {[
+              { id: 'operators', label: 'Operators' },
+              { id: 'actions', label: 'Actions' },
+              { id: 'co-builder', label: 'Co-Builder' },
+            ].map((item) => (
+              <button
+                key={item.id}
+                onClick={() => setQuickBuildTab(item.id as 'operators' | 'actions' | 'co-builder')}
+                style={{
+                  background: quickBuildTab === item.id ? '#333842' : 'transparent',
+                  color: quickBuildTab === item.id ? '#fff' : '#9ca3af',
+                  border: 'none',
+                  borderRadius: 6,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  padding: '6px 8px',
+                  cursor: 'pointer',
+                }}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+
+          <input
+            value={quickBuildSearch}
+            onChange={(event) => setQuickBuildSearch(event.target.value)}
+            placeholder={quickBuildTab === 'actions' ? 'Search actions' : 'Search operators'}
+            style={{ width: '100%', marginBottom: 8, background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '8px 10px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
+          />
+
+          {quickBuildTab === 'co-builder' ? (
+            <div style={{ color: '#9ca3af', fontSize: 11, lineHeight: 1.5, padding: '6px 2px' }}>
+              Co-Builder shortcuts are available here in Torq. Add an operator or action from the other tabs in this mock.
+            </div>
+          ) : (
+            <div style={{ maxHeight: 220, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {(quickBuildTab === 'operators'
+                ? OPERATOR_TEMPLATES.filter((item) =>
+                    item.label.toLowerCase().includes(quickBuildSearch.toLowerCase()) ||
+                    item.description.toLowerCase().includes(quickBuildSearch.toLowerCase()),
+                  ).map((item) => ({
+                    key: item.id,
+                    label: item.label,
+                    helper: item.description,
+                    onPick: () => {
+                      addNode(
+                        createOperatorNodeFromTemplate(item, {
+                          x: quickBuildMenu.flowX,
+                          y: quickBuildMenu.flowY,
+                        }),
+                      )
+                      setQuickBuildMenu(null)
+                    },
+                  }))
+                : DB.filter((item) =>
+                    item.n.toLowerCase().includes(quickBuildSearch.toLowerCase()) ||
+                    item.cat.toLowerCase().includes(quickBuildSearch.toLowerCase()),
+                  )
+                    .slice(0, 20)
+                    .map((item) => ({
+                      key: item.n,
+                      label: item.n,
+                      helper: item.cat,
+                      onPick: () => {
+                        addNode(
+                          createStepNodeFromAction(
+                            { n: item.n, cat: item.cat },
+                            {
+                              x: quickBuildMenu.flowX,
+                              y: quickBuildMenu.flowY,
+                            },
+                          ),
+                        )
+                        setQuickBuildMenu(null)
+                      },
+                    })))
+                .map((entry) => (
+                  <button
+                    key={entry.key}
+                    onClick={entry.onPick}
+                    style={{ width: '100%', background: 'transparent', border: '1px solid #2a2e35', borderRadius: 6, color: '#e2e8f0', textAlign: 'left', padding: '8px 10px', cursor: 'pointer' }}
+                  >
+                    <div style={{ fontSize: 12, fontWeight: 600 }}>{entry.label}</div>
+                    <div style={{ color: '#9ca3af', fontSize: 10 }}>{entry.helper}</div>
+                  </button>
+                ))}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -2987,6 +3284,8 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const isSlack = /slack/i.test(stepDescriptor)
   const isTeams = /teams|microsoft teams bot/i.test(stepDescriptor)
   const isTrigger = node.type === 'trigger'
+  const isOperator = node.type === 'operator'
+  const isNodeDisabled = Boolean(node.data?.disabled)
   const isWebhookTrigger = isTrigger && /webhook/i.test(stepDescriptor)
   const isSlackTrigger = isTrigger && isSlack
   const isTeamsTrigger = isTrigger && isTeams
@@ -3032,6 +3331,7 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const [showEmailTriggerInstanceModal, setShowEmailTriggerInstanceModal] = useState(false)
   const [emailTriggerSearch, setEmailTriggerSearch] = useState('')
   const [emailTriggerInstanceName, setEmailTriggerInstanceName] = useState(String(node.data?.emailTriggerInstanceName || 'email_demo'))
+  const [emailTriggerInstanceShared, setEmailTriggerInstanceShared] = useState(Boolean(node.data?.emailTriggerInstanceShared))
   const [emailTriggerInstances, setEmailTriggerInstances] = useState<EmailTriggerInstance[]>(
     Array.isArray(node.data?.emailTriggerInstances) ? node.data.emailTriggerInstances : [],
   )
@@ -3466,6 +3766,7 @@ isPrivate: false`
     setShowEmailTriggerInstanceModal(false)
     setEmailTriggerSearch('')
     setEmailTriggerInstanceName(String(node.data?.emailTriggerInstanceName || 'email_demo'))
+    setEmailTriggerInstanceShared(Boolean(node.data?.emailTriggerInstanceShared))
     setEmailTriggerInstances(Array.isArray(node.data?.emailTriggerInstances) ? node.data.emailTriggerInstances : [])
     setScheduleIntervalValue(String(node.data?.scheduleIntervalValue || '1'))
     setScheduleIntervalUnit(String(node.data?.scheduleIntervalUnit || 'Hour') as (typeof SCHEDULE_INTERVAL_UNITS)[number])
@@ -3618,6 +3919,18 @@ isPrivate: false`
               <i className="fa-solid fa-box" />
             </button>
           )}
+          {isOperator && (
+            <button
+              onClick={() => {
+                const next = !isNodeDisabled
+                persistNodeData({ disabled: next })
+              }}
+              title={isNodeDisabled ? 'Enable operator' : 'Disable operator'}
+              style={{ background: 'none', border: 'none', color: isNodeDisabled ? '#ef4444' : '#9ca3af', cursor: 'pointer', display: 'flex' }}
+            >
+              <i className={isNodeDisabled ? 'fa-solid fa-eye-slash' : 'fa-solid fa-eye'} />
+            </button>
+          )}
           <button style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', display: 'flex' }}><i className="fa-solid fa-arrow-right-to-bracket" style={{ transform: 'rotate(180deg)' }} /></button>
           <button 
             onClick={() => {
@@ -3674,6 +3987,11 @@ isPrivate: false`
             <div style={{ fontSize: 11, color: '#9ca3af', display: 'flex', alignItems: 'center', gap: 6 }}>
               <i className="fa-solid fa-rocket" /> Accelerated • {isHttpMode ? 'HTTP' : (node.data?.subtext || 'System')} • 3.0 • V1
             </div>
+            {isOperator && isNodeDisabled && (
+              <div style={{ marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 6, borderRadius: 999, border: '1px solid #7f1d1d', background: 'rgba(127,29,29,0.35)', color: '#fecaca', fontSize: 10, fontWeight: 600, padding: '4px 8px' }}>
+                <i className="fa-solid fa-eye-slash" /> Disabled (skipped in execution)
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -4636,6 +4954,7 @@ isPrivate: false`
                                 <button
                                   onClick={() => {
                                     setEmailTriggerInstanceName('email_demo')
+                                    setEmailTriggerInstanceShared(false)
                                     setShowEmailTriggerInstanceModal(true)
                                   }}
                                   style={{ background: '#e5e7eb', border: 'none', color: '#111827', borderRadius: 8, padding: '10px 18px', fontSize: 30, fontWeight: 500, cursor: 'pointer' }}
@@ -4696,6 +5015,15 @@ isPrivate: false`
                                         placeholder="email_demo"
                                         style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
                                       />
+
+                                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#e2e8f0', fontSize: 12, cursor: 'pointer', marginTop: 12 }}>
+                                        <input
+                                          type="checkbox"
+                                          checked={emailTriggerInstanceShared}
+                                          onChange={(event) => setEmailTriggerInstanceShared(event.target.checked)}
+                                        />
+                                        Mark as shared integration (destination workspace cannot view auto-generated address)
+                                      </label>
                                     </div>
 
                                     <div style={{ borderTop: '1px solid #3a3f47', padding: '14px 18px', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
@@ -4712,7 +5040,7 @@ isPrivate: false`
                                             id: `email-inst-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
                                             name,
                                             address: buildEmailTriggerAddress(name),
-                                            shared: false,
+                                            shared: emailTriggerInstanceShared,
                                             lastEventAt: Date.now(),
                                           }
                                           const nextInstances = [instance, ...emailTriggerInstances]
@@ -4725,6 +5053,7 @@ isPrivate: false`
                                           persistNodeData({
                                             emailTriggerInstances: nextInstances,
                                             emailTriggerInstanceName: name,
+                                            emailTriggerInstanceShared,
                                             triggerIntegrationInstance: instance.name,
                                             triggerEventLog: sampleLog,
                                             expandedEventLogId: sampleLog[0]?.id || '',
@@ -5623,6 +5952,7 @@ isPrivate: false`
                             id: `env-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
                             key: `PARAM_${effectiveCustomContainerEnvParameters.length + 1}`,
                             value: '',
+                            valueType: 'string',
                             required: false,
                           },
                         ]
@@ -5637,7 +5967,7 @@ isPrivate: false`
                   <div style={{ display: 'grid', gap: 8 }}>
                     {effectiveCustomContainerEnvParameters.map((parameter, parameterIndex) => (
                       <div key={parameter.id} style={{ border: '1px solid #333842', borderRadius: 8, background: '#17191e', padding: 10 }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, marginBottom: 8 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 130px auto', gap: 8, marginBottom: 8 }}>
                           <input
                             value={parameter.key}
                             onChange={(event) => {
@@ -5660,6 +5990,24 @@ isPrivate: false`
                             placeholder="such command, much wow!"
                             style={{ width: '100%', background: '#0f1115', border: '1px solid #333842', borderRadius: 6, padding: '8px 10px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
                           />
+                          <div style={{ position: 'relative' }}>
+                            <select
+                              value={parameter.valueType}
+                              onChange={(event) => {
+                                const value = event.target.value as CustomContainerEnvParameter['valueType']
+                                const next = [...effectiveCustomContainerEnvParameters]
+                                next[parameterIndex] = { ...next[parameterIndex], valueType: value }
+                                updateCustomContainerEnvParameters(next)
+                              }}
+                              style={{ width: '100%', appearance: 'none', background: '#0f1115', border: '1px solid #333842', borderRadius: 6, padding: '8px 10px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
+                            >
+                              <option value="string">string</option>
+                              <option value="number">number</option>
+                              <option value="boolean">boolean</option>
+                              <option value="file">file</option>
+                            </select>
+                            <ChevronDown size={14} color="#9ca3af" style={{ position: 'absolute', right: 10, top: 9, pointerEvents: 'none' }} />
+                          </div>
                           <button
                             onClick={() => {
                               if (effectiveCustomContainerEnvParameters.length === 1) return
@@ -5690,6 +6038,7 @@ isPrivate: false`
 
                   <div style={{ marginTop: 6, color: '#94a3b8', fontSize: 11 }}>
                     Each key appears in the container as an env var (e.g. <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>$COMMAND</span>).
+                    File inputs should receive Torq file links (for example <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>tqfile://steps/XXXXXXXXX</span>) and be read in-step.
                   </div>
                 </div>
 

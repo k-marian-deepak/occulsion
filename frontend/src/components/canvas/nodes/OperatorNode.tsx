@@ -4,6 +4,7 @@ import { GitBranch } from 'lucide-react'
 export function OperatorNode({ data, selected }: NodeProps) {
   const diffType = data.__diffType as 'modified' | 'added' | 'deleted' | undefined
   const mockEnabled = Boolean(data.mockOutputEnabled)
+  const isDisabled = Boolean(data.disabled)
   const diffBorder =
     diffType === 'modified'
       ? '#3b82f6'
@@ -16,13 +17,14 @@ export function OperatorNode({ data, selected }: NodeProps) {
   return (
     <div style={{
       background: 'var(--bg2)',
-      border: `1px solid ${selected ? 'var(--amber)' : mockEnabled ? '#facc15' : diffBorder || 'var(--abg)'}`,
+      border: `1px solid ${isDisabled ? '#7f1d1d' : selected ? 'var(--amber)' : mockEnabled ? '#facc15' : diffBorder || 'var(--abg)'}`,
       borderRadius: 10,
       padding: '10px 14px',
       minWidth: 160,
       position: 'relative',
       transition: 'all 0.15s ease',
       boxShadow: mockEnabled ? '0 0 0 2px rgba(250,204,21,0.35)' : diffBorder ? `0 0 0 2px ${diffBorder}40` : 'none',
+      opacity: isDisabled ? 0.55 : 1,
     }}>
       <Handle type="target" position={Position.Top} style={{ background: 'var(--amber)', width: 8, height: 8 }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -59,6 +61,22 @@ export function OperatorNode({ data, selected }: NodeProps) {
           }}
         >
           {diffType}
+        </div>
+      )}
+
+      {isDisabled && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: -18,
+            right: 0,
+            color: '#fca5a5',
+            fontSize: 10,
+            fontWeight: 700,
+            textTransform: 'uppercase',
+          }}
+        >
+          Disabled
         </div>
       )}
     </div>
