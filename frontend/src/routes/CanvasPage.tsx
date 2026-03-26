@@ -1072,16 +1072,163 @@ function DropZone({
   )
 }
 
+const WORKFLOW_CONTEXT_PATHS = [
+  { path: '$.event', group: 'Event', description: 'Trigger event payload' },
+  { path: '$.event.user.firstName', group: 'Event', description: 'Triggered user first name' },
+  { path: '$.event.user.macAddress', group: 'Event', description: 'Triggered user MAC address' },
+  { path: '$.integrations', group: 'Integrations', description: 'Configured integrations root' },
+  { path: '$.integrations.wiz_demo', group: 'Integrations', description: 'Sample integration config' },
+  { path: '$.secrets', group: 'Secrets', description: 'Secrets root' },
+  { path: '$.secrets.<secret_key>', group: 'Secrets', description: 'Specific secret by key' },
+  { path: '$.extract_urls_from_email.results', group: 'Step Outputs', description: 'Output from prior step' },
+  { path: '$.metadata.account_id', group: 'Metadata', description: 'Workspace ID' },
+  { path: '$.metadata.account_name', group: 'Metadata', description: 'Workspace name' },
+  { path: '$.metadata.event_id', group: 'Metadata', description: 'Trigger event ID' },
+  { path: '$.metadata.execution_id', group: 'Metadata', description: 'Execution ID' },
+  { path: '$.metadata.execution_nested_level', group: 'Metadata', description: 'Execution nesting depth' },
+  { path: '$.metadata.execution_url', group: 'Metadata', description: 'Execution run-log URL' },
+  { path: '$.metadata.parent_execution_id', group: 'Metadata', description: 'Parent execution ID' },
+  { path: '$.metadata.parent_workflow_id', group: 'Metadata', description: 'Parent workflow ID' },
+  { path: '$.metadata.user_email', group: 'Metadata', description: 'Triggering user email' },
+  { path: '$.metadata.workflow_id', group: 'Metadata', description: 'Workflow ID' },
+  { path: '$.metadata.workflow_name', group: 'Metadata', description: 'Workflow name' },
+  { path: '$.metadata.workflow_revision_id', group: 'Metadata', description: 'Workflow revision ID' },
+  { path: '$.metadata.case.id', group: 'Metadata', description: 'Case ID (if applicable)' },
+]
+
+function findContextTokenContext(value: string, cursorPosition: number) {
+  const uptoCursor = value.slice(0, cursorPosition)
+  const tokenStart = uptoCursor.lastIndexOf('$')
+  if (tokenStart < 0) return null
+
+  const typedToken = uptoCursor.slice(tokenStart)
+  if (!typedToken.startsWith('$.')) return null
+  if (typedToken.includes('}') || typedToken.includes('{') || typedToken.includes(' ')) {
+    return null
+  }
+
+  const leftPart = value.slice(0, tokenStart)
+  const isInsideTemplate =
+    leftPart.lastIndexOf('{{') > leftPart.lastIndexOf('}}')
+
+  return {
+    start: tokenStart,
+    end: cursorPosition,
+    query: typedToken,
+    isInsideTemplate,
+  }
+}
+
+function buildContextToken(path: string) {
+  return `{{ ${path} }}`
+}
+
 function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => void }) {
   const isTrigger = node.type === 'trigger'
-  const { nodes, edges, setNodes, setEdges, selectNode } = useWorkflowStore()
+  const isMessageLikeStep = /message|slack|ticket|log/i.test(String(node.data?.label || ''))
+  const { nodes, edges, setNodes, setEdges, selectNode, persistCurrentWorkflowGraph } = useWorkflowStore()
   const [isHttpMode, setIsHttpMode] = useState(false)
   const [showHttpConfirm, setShowHttpConfirm] = useState(false)
+  const [recipient, setRecipient] = useState(String(node.data?.recipient || ''))
+  const [messageText, setMessageText] = useState(String(node.data?.messageText || ''))
+  const [activeField, setActiveField] = useState<'recipient' | 'message' | null>(null)
+  const [pickerOpenFor, setPickerOpenFor] = useState<'recipient' | 'message' | null>(null)
+  const [autocomplete, setAutocomplete] = useState<{
+    field: 'recipient' | 'message'
+    start: number
+    end: number
+    query: string
+    isInsideTemplate: boolean
+  } | null>(null)
+  const recipientRef = useRef<HTMLInputElement | null>(null)
+  const messageRef = useRef<HTMLTextAreaElement | null>(null)
+
+  const contextQuery = (autocomplete?.query || '').toLowerCase()
+  const filteredContextPaths = WORKFLOW_CONTEXT_PATHS.filter((item) =>
+    item.path.toLowerCase().includes(contextQuery),
+  )
+
+  const persistNodeData = (partial: Record<string, unknown>) => {
+    const nextNodes = nodes.map((item) =>
+      item.id === node.id
+        ? {
+            ...item,
+            data: {
+              ...(item.data || {}),
+              ...partial,
+            },
+          }
+        : item,
+    )
+    setNodes(nextNodes)
+    persistCurrentWorkflowGraph(nextNodes as any, edges)
+    const updated = nextNodes.find((item) => item.id === node.id)
+    if (updated) {
+      selectNode(updated as any)
+    }
+  }
+
+  const updateAutocomplete = (
+    field: 'recipient' | 'message',
+    value: string,
+    caretPosition: number,
+  ) => {
+    const context = findContextTokenContext(value, caretPosition)
+    if (!context) {
+      setAutocomplete(null)
+      return
+    }
+    setAutocomplete({ field, ...context })
+  }
+
+  const applyContextPath = (path: string, targetField?: 'recipient' | 'message') => {
+    const field = targetField || autocomplete?.field || activeField
+    if (!field) return
+
+    const sourceValue = field === 'recipient' ? recipient : messageText
+    const inputRef = field === 'recipient' ? recipientRef.current : messageRef.current
+    const fallbackCursor = inputRef?.selectionStart ?? sourceValue.length
+    const context = autocomplete?.field === field ? autocomplete : findContextTokenContext(sourceValue, fallbackCursor)
+
+    const replacement = context?.isInsideTemplate ? path : buildContextToken(path)
+    const start = context ? context.start : fallbackCursor
+    const end = context ? context.end : fallbackCursor
+    const nextValue = sourceValue.slice(0, start) + replacement + sourceValue.slice(end)
+
+    if (field === 'recipient') {
+      setRecipient(nextValue)
+      persistNodeData({ recipient: nextValue })
+      setTimeout(() => {
+        recipientRef.current?.focus()
+        const nextCursor = start + replacement.length
+        recipientRef.current?.setSelectionRange(nextCursor, nextCursor)
+      }, 0)
+    } else {
+      setMessageText(nextValue)
+      persistNodeData({ messageText: nextValue })
+      setTimeout(() => {
+        messageRef.current?.focus()
+        const nextCursor = start + replacement.length
+        messageRef.current?.setSelectionRange(nextCursor, nextCursor)
+      }, 0)
+    }
+
+    setAutocomplete(null)
+    setPickerOpenFor(null)
+  }
   
   useEffect(() => {
     setIsHttpMode(false)
     setShowHttpConfirm(false)
   }, [node])
+
+  useEffect(() => {
+    setRecipient(String(node.data?.recipient || ''))
+    setMessageText(String(node.data?.messageText || ''))
+    setAutocomplete(null)
+    setActiveField(null)
+    setPickerOpenFor(null)
+  }, [node.id])
   
   return (
     <div className="animate-fade-in workflow-editor-properties" style={{
@@ -1268,22 +1415,160 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
           </div>
         ) : (
           <div>
-            {/* Input 1 */}
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>IP address</div>
-              <div style={{ background: '#17191e', border: '1px solid #333842', borderRadius: 6, display: 'flex', alignItems: 'center', padding: '10px 12px' }}>
-                <span style={{ color: '#e2e8f0', fontSize: 13, fontFamily: 'monospace' }}>{'{'}{'{'} $.event.ip_address {'}'}{'}'}</span>
-              </div>
-            </div>
+            {isMessageLikeStep ? (
+              <>
+                <div style={{ marginBottom: 16, position: 'relative' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span>Recipient</span>
+                    <button
+                      onClick={() => setPickerOpenFor((prev) => (prev === 'recipient' ? null : 'recipient'))}
+                      style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}
+                    >
+                      <Plus size={12} /> Context
+                    </button>
+                  </div>
+                  <input
+                    ref={recipientRef}
+                    value={recipient}
+                    onFocus={() => setActiveField('recipient')}
+                    onBlur={() => setTimeout(() => setActiveField((prev) => (prev === 'recipient' ? null : prev)), 120)}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      const caret = event.target.selectionStart ?? value.length
+                      setRecipient(value)
+                      persistNodeData({ recipient: value })
+                      updateAutocomplete('recipient', value, caret)
+                    }}
+                    onKeyUp={(event) => {
+                      const target = event.currentTarget
+                      updateAutocomplete('recipient', target.value, target.selectionStart ?? target.value.length)
+                    }}
+                    placeholder="user1@example.com"
+                    style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                  />
 
-            {/* Input 2 */}
-            <div style={{ marginBottom: 24 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Integration</div>
-              <div style={{ background: '#17191e', border: '1px solid #333842', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px' }}>
-                <span style={{ color: '#e2e8f0', fontSize: 13, fontFamily: 'monospace' }}>{'{'}{'{'} $.workflow_parameters.virustotal_integration {'}'}{'}'}</span>
-                <X size={14} color="#9ca3af" style={{ cursor: 'pointer' }} />
-              </div>
-            </div>
+                  {autocomplete && autocomplete.field === 'recipient' && activeField === 'recipient' && filteredContextPaths.length > 0 && (
+                    <div style={{ position: 'absolute', left: 0, right: 0, top: 72, background: '#252830', border: '1px solid #333842', borderRadius: 8, zIndex: 30, boxShadow: '0 16px 40px rgba(0,0,0,0.45)', maxHeight: 230, overflowY: 'auto' }}>
+                      {filteredContextPaths.map((item) => (
+                        <button
+                          key={item.path}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => applyContextPath(item.path)}
+                          style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '10px 12px', cursor: 'pointer', fontSize: 13 }}
+                        >
+                          <i className="fa-regular fa-tag" style={{ marginRight: 8, color: '#9ca3af' }} />
+                          {item.path}
+                          <span style={{ marginLeft: 8, color: '#94a3b8', fontSize: 11 }}>{item.group}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {pickerOpenFor === 'recipient' && (
+                    <div style={{ position: 'absolute', left: 0, right: 0, top: 72, background: '#252830', border: '1px solid #333842', borderRadius: 8, zIndex: 35, boxShadow: '0 16px 40px rgba(0,0,0,0.45)', maxHeight: 260, overflowY: 'auto' }}>
+                      {WORKFLOW_CONTEXT_PATHS.map((item) => (
+                        <button
+                          key={item.path}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => applyContextPath(item.path, 'recipient')}
+                          style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '10px 12px', cursor: 'pointer', fontSize: 12 }}
+                        >
+                          <div style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{item.path}</div>
+                          <div style={{ color: '#94a3b8', fontSize: 11 }}>{item.description}</div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ marginBottom: 24, position: 'relative' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span>Message text</span>
+                    <button
+                      onClick={() => setPickerOpenFor((prev) => (prev === 'message' ? null : 'message'))}
+                      style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}
+                    >
+                      <Plus size={12} /> Context
+                    </button>
+                  </div>
+                  <textarea
+                    ref={messageRef}
+                    value={messageText}
+                    onFocus={() => setActiveField('message')}
+                    onBlur={() => setTimeout(() => setActiveField((prev) => (prev === 'message' ? null : prev)), 120)}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      const caret = event.target.selectionStart ?? value.length
+                      setMessageText(value)
+                      persistNodeData({ messageText: value })
+                      updateAutocomplete('message', value, caret)
+                    }}
+                    onKeyUp={(event) => {
+                      const target = event.currentTarget
+                      updateAutocomplete('message', target.value, target.selectionStart ?? target.value.length)
+                    }}
+                    placeholder="Type message. Use {{ $.metadata. }} for execution context"
+                    style={{ width: '100%', minHeight: 150, background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
+                  />
+
+                  {autocomplete && autocomplete.field === 'message' && activeField === 'message' && filteredContextPaths.length > 0 && (
+                    <div style={{ position: 'absolute', left: 0, right: 0, bottom: -150, background: '#252830', border: '1px solid #333842', borderRadius: 8, zIndex: 30, boxShadow: '0 16px 40px rgba(0,0,0,0.45)', maxHeight: 190, overflowY: 'auto' }}>
+                      {filteredContextPaths.map((item) => (
+                        <button
+                          key={item.path}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => applyContextPath(item.path)}
+                          style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '10px 12px', cursor: 'pointer', fontSize: 13 }}
+                        >
+                          <i className="fa-regular fa-tag" style={{ marginRight: 8, color: '#9ca3af' }} />
+                          {item.path}
+                          <span style={{ marginLeft: 8, color: '#94a3b8', fontSize: 11 }}>{item.group}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {pickerOpenFor === 'message' && (
+                    <div style={{ position: 'absolute', left: 0, right: 0, bottom: -180, background: '#252830', border: '1px solid #333842', borderRadius: 8, zIndex: 35, boxShadow: '0 16px 40px rgba(0,0,0,0.45)', maxHeight: 220, overflowY: 'auto' }}>
+                      {WORKFLOW_CONTEXT_PATHS.map((item) => (
+                        <button
+                          key={item.path}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onClick={() => applyContextPath(item.path, 'message')}
+                          style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '10px 12px', cursor: 'pointer', fontSize: 12 }}
+                        >
+                          <div style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{item.path}</div>
+                          <div style={{ color: '#94a3b8', fontSize: 11 }}>{item.description}</div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.5 }}>
+                  Use workflow context in inputs: <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ $.event.user.firstName }}'}</span> or <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ $.metadata.execution_id }}'}</span>
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Input 1 */}
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>IP address</div>
+                  <div style={{ background: '#17191e', border: '1px solid #333842', borderRadius: 6, display: 'flex', alignItems: 'center', padding: '10px 12px' }}>
+                    <span style={{ color: '#e2e8f0', fontSize: 13, fontFamily: 'monospace' }}>{'{'}{'{'} $.event.ip_address {'}'}{'}'}</span>
+                  </div>
+                </div>
+
+                {/* Input 2 */}
+                <div style={{ marginBottom: 24 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Integration</div>
+                  <div style={{ background: '#17191e', border: '1px solid #333842', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px' }}>
+                    <span style={{ color: '#e2e8f0', fontSize: 13, fontFamily: 'monospace' }}>{'{'}{'{'} $.workflow_parameters.virustotal_integration {'}'}{'}'}</span>
+                    <X size={14} color="#9ca3af" style={{ cursor: 'pointer' }} />
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         )}
 
