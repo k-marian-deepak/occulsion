@@ -1370,6 +1370,7 @@ function renderAdvancedTemplatePreview(template: string, urlSource: string) {
 function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => void }) {
   const isTrigger = node.type === 'trigger'
   const isMessageLikeStep = /message|slack|ticket|log/i.test(String(node.data?.label || ''))
+  const isEmailStep = /gmail|email/i.test(String(node.data?.subtext || '')) || /email|gmail/i.test(String(node.data?.label || ''))
   const isDateTimeStep = /date|time|datetime|timestamp/i.test(String(node.data?.label || ''))
   const isAdvancedTemplateStep = /template|golang|urlquery|print/i.test(String(node.data?.label || ''))
   const isCurlyEscapeStep = /escape\s*\{\}/i.test(String(node.data?.label || ''))
@@ -1382,6 +1383,7 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const [showHttpConfirm, setShowHttpConfirm] = useState(false)
   const [recipient, setRecipient] = useState(String(node.data?.recipient || ''))
   const [messageText, setMessageText] = useState(String(node.data?.messageText || ''))
+  const [contentType, setContentType] = useState(String(node.data?.contentType || 'text/plain'))
   const [rawDataInput, setRawDataInput] = useState(String(node.data?.rawDataInput || DEFAULT_RAW_DATA_INPUT))
   const [addJsonInput, setAddJsonInput] = useState(String(node.data?.addJsonInput || DEFAULT_ADD_TO_JSON_INPUT))
   const [curlyEscapeInput, setCurlyEscapeInput] = useState(String(node.data?.curlyEscapeInput || DEFAULT_CURLY_ESCAPE_STATIC))
@@ -1404,6 +1406,18 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const recipientRef = useRef<HTMLInputElement | null>(null)
   const messageRef = useRef<HTMLTextAreaElement | null>(null)
   const addJsonRef = useRef<HTMLTextAreaElement | null>(null)
+
+  const wrapMessageWithPreTag = () => {
+    const trimmed = messageText.trim()
+    const hasPreTag = /^<pre>[\s\S]*<\/pre>$/i.test(trimmed)
+    const wrapped = hasPreTag ? messageText : `<pre>\n${messageText}\n</pre>`
+    setMessageText(wrapped)
+    setContentType('text/html, charset=UTF-8')
+    persistNodeData({
+      messageText: wrapped,
+      contentType: 'text/html, charset=UTF-8',
+    })
+  }
 
   const contextQuery = (autocomplete?.query || '').toLowerCase()
   const filteredContextPaths = WORKFLOW_CONTEXT_PATHS.filter((item) =>
@@ -1549,6 +1563,7 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   useEffect(() => {
     setRecipient(String(node.data?.recipient || ''))
     setMessageText(String(node.data?.messageText || ''))
+    setContentType(String(node.data?.contentType || 'text/plain'))
     setRawDataInput(String(node.data?.rawDataInput || DEFAULT_RAW_DATA_INPUT))
     setAddJsonInput(String(node.data?.addJsonInput || DEFAULT_ADD_TO_JSON_INPUT))
     setCurlyEscapeInput(String(node.data?.curlyEscapeInput || DEFAULT_CURLY_ESCAPE_STATIC))
@@ -1882,6 +1897,47 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                 <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.5 }}>
                   Use workflow context in inputs: <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ $.event.user.firstName }}'}</span> or <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ $.metadata.execution_id }}'}</span>
                 </div>
+
+                {isEmailStep && (
+                  <>
+                    <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>ASCII table email formatting</div>
+                      <button
+                        onClick={wrapMessageWithPreTag}
+                        style={{ background: '#17191e', border: '1px solid #333842', color: '#e2e8f0', borderRadius: 6, padding: '6px 10px', fontSize: 11, cursor: 'pointer' }}
+                      >
+                        Apply pre + HTML content type
+                      </button>
+                    </div>
+
+                    <div style={{ marginBottom: 16 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Content type</div>
+                      <input
+                        value={contentType}
+                        onChange={(event) => {
+                          const value = event.target.value
+                          setContentType(value)
+                          persistNodeData({ contentType: value })
+                        }}
+                        placeholder="text/html, charset=UTF-8"
+                        style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
+                      />
+                    </div>
+
+                    <div style={{ marginBottom: 16 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Rendered preview</div>
+                      <div style={{ background: '#ffffff', border: '1px solid #d1d5db', borderRadius: 6, padding: '10px 12px', color: '#111827', fontSize: 12, fontFamily: contentType.toLowerCase().includes('text/html') ? 'monospace' : 'inherit', whiteSpace: 'pre-wrap' }}>
+                        {messageText
+                          .replace(/^<pre>\n?/i, '')
+                          .replace(/\n?<\/pre>$/i, '')}
+                      </div>
+                    </div>
+
+                    <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.5 }}>
+                      Wrap ASCII output with <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'<pre>'}</span> and <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'</pre>'}</span>, and set content type to <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>text/html, charset=UTF-8</span> to preserve table alignment in emails.
+                    </div>
+                  </>
+                )}
 
                 <div style={{ marginBottom: 16, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   <button
