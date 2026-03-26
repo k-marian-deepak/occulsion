@@ -2059,6 +2059,28 @@ const CIRCLECI_ROTATION_TEMPLATES = [
 const DEFAULT_CIRCLECI_CREATED_BEFORE = '2023-01-04'
 const DEFAULT_CIRCLECI_INTEGRATION = 'circleci-prod'
 const DEFAULT_CIRCLECI_STATUS_CHANNEL = '#security-rotations'
+const DEFAULT_SLACK_BLOCKS_PAYLOAD = `[
+  {
+    "type": "section",
+    "text": {
+      "type": "mrkdwn",
+      "text": "*URL Investigation Update*\n{{ $.event.text }}"
+    }
+  },
+  {
+    "type": "actions",
+    "elements": [
+      {
+        "type": "button",
+        "text": {
+          "type": "plain_text",
+          "text": "Open Case"
+        },
+        "url": "{{ $.case.url }}"
+      }
+    ]
+  }
+]`
 
 function jsonEscapeInlineValue(value: string) {
   return JSON.stringify(value).slice(1, -1)
@@ -2252,11 +2274,17 @@ function renderAdvancedTemplatePreview(template: string, urlSource: string) {
 
 function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => void }) {
   const stepDescriptor = `${String(node.data?.label || '')} ${String(node.data?.subtext || '')}`
+  const isSlack = /slack/i.test(stepDescriptor)
   const isTrigger = node.type === 'trigger'
   const isWebhookTrigger = isTrigger && /webhook/i.test(stepDescriptor)
+  const isSlackTrigger = isTrigger && isSlack
+  const isSlackSlashCommandTrigger = isSlackTrigger && /slash|command/i.test(stepDescriptor)
+  const isSlackCustomEventsTrigger = isSlackTrigger && /custom|event|monitor|channel/i.test(stepDescriptor)
   const isExitOperator = /\bexit\b/i.test(String(node.data?.label || ''))
   const isCircleCIRotationStep = /circleci|secret rotation|environment variables|rotate secrets/i.test(stepDescriptor)
   const isMessageLikeStep = /message|slack|ticket|log/i.test(String(node.data?.label || ''))
+  const isSlackAskQuestionStep = isSlack && /ask|question/i.test(stepDescriptor)
+  const isSlackMessageBlocksStep = isSlack && /block/i.test(stepDescriptor)
   const isEmailStep = /gmail|email/i.test(String(node.data?.subtext || '')) || /email|gmail/i.test(String(node.data?.label || ''))
   const isDateTimeStep = /date|time|datetime|timestamp/i.test(String(node.data?.label || ''))
   const isAdvancedTemplateStep = /template|golang|urlquery|print/i.test(String(node.data?.label || ''))
@@ -2271,6 +2299,14 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const [panelTab, setPanelTab] = useState<'properties' | 'execution' | 'mock'>('properties')
   const [executionTab, setExecutionTab] = useState<'output' | 'input' | 'debug'>('output')
   const [triggerExecutionType, setTriggerExecutionType] = useState<'webhook' | 'async' | 'sync'>(String(node.data?.triggerExecutionType || 'webhook') as 'webhook' | 'async' | 'sync')
+  const inferredSlackTriggerMode = isSlackCustomEventsTrigger ? 'custom-events' : isSlackSlashCommandTrigger ? 'slash-command' : 'slash-command'
+  const [slackTriggerMode, setSlackTriggerMode] = useState<'slash-command' | 'custom-events'>(String(node.data?.slackTriggerMode || inferredSlackTriggerMode) as 'slash-command' | 'custom-events')
+  const [slackSlashCommand, setSlackSlashCommand] = useState(String(node.data?.slackSlashCommand || 'check_url'))
+  const [slackSlashConditionEnabled, setSlackSlashConditionEnabled] = useState(Boolean(node.data?.slackSlashConditionEnabled ?? true))
+  const [slackExtractUrlsPath, setSlackExtractUrlsPath] = useState(String(node.data?.slackExtractUrlsPath || '$.event.text'))
+  const [slackEventSubscription, setSlackEventSubscription] = useState<'messages.channels' | 'message.groups'>(String(node.data?.slackEventSubscription || 'messages.channels') as 'messages.channels' | 'message.groups')
+  const [slackEventChannel, setSlackEventChannel] = useState(String(node.data?.slackEventChannel || '#security'))
+  const [slackEventTextFilter, setSlackEventTextFilter] = useState(String(node.data?.slackEventTextFilter || 'check url'))
   const [mockOutputEnabled, setMockOutputEnabled] = useState(Boolean(node.data?.mockOutputEnabled))
   const [mockOutputText, setMockOutputText] = useState(String(node.data?.mockOutputText || buildMockOutputExample(String(node.data?.label || ''))))
   const [mockMenuOpen, setMockMenuOpen] = useState(false)
@@ -2287,6 +2323,14 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const [recipient, setRecipient] = useState(String(node.data?.recipient || ''))
   const [messageText, setMessageText] = useState(String(node.data?.messageText || ''))
   const [contentType, setContentType] = useState(String(node.data?.contentType || 'text/plain'))
+  const inferredSlackStepMode = isSlackMessageBlocksStep ? 'message-blocks' : isSlackAskQuestionStep ? 'ask-question' : 'send-message'
+  const [slackStepMode, setSlackStepMode] = useState<'send-message' | 'ask-question' | 'message-blocks'>(String(node.data?.slackStepMode || inferredSlackStepMode) as 'send-message' | 'ask-question' | 'message-blocks')
+  const [slackQuestionResponses, setSlackQuestionResponses] = useState(String(node.data?.slackQuestionResponses || 'Yes,No'))
+  const [slackQuestionResponseType, setSlackQuestionResponseType] = useState<'buttons' | 'single-select' | 'multi-select'>(String(node.data?.slackQuestionResponseType || 'buttons') as 'buttons' | 'single-select' | 'multi-select')
+  const [slackResponsesRequiringNote, setSlackResponsesRequiringNote] = useState(String(node.data?.slackResponsesRequiringNote || 'Yes'))
+  const [slackThreadTs, setSlackThreadTs] = useState(String(node.data?.slackThreadTs || '{{ $.ask_a_question.ts }}'))
+  const [slackWaitDurationPath, setSlackWaitDurationPath] = useState(String(node.data?.slackWaitDurationPath || '$.ask_a_question.note_response'))
+  const [slackBlocksPayload, setSlackBlocksPayload] = useState(String(node.data?.slackBlocksPayload || DEFAULT_SLACK_BLOCKS_PAYLOAD))
   const [rawDataInput, setRawDataInput] = useState(String(node.data?.rawDataInput || DEFAULT_RAW_DATA_INPUT))
   const [addJsonInput, setAddJsonInput] = useState(String(node.data?.addJsonInput || DEFAULT_ADD_TO_JSON_INPUT))
   const [curlyEscapeInput, setCurlyEscapeInput] = useState(String(node.data?.curlyEscapeInput || DEFAULT_CURLY_ESCAPE_STATIC))
@@ -2342,6 +2386,14 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
     CIRCLECI_ROTATION_TEMPLATES.find((item) => item.id === circleciTemplateId) || CIRCLECI_ROTATION_TEMPLATES[0]
   const mockOutputHasTemplate = /\{\{[\s\S]*\}\}/.test(mockOutputText)
   const mockOutputTooLarge = new Blob([mockOutputText]).size > 100 * 1024
+  const slackBlocksJsonValid = (() => {
+    try {
+      JSON.parse(slackBlocksPayload)
+      return true
+    } catch {
+      return false
+    }
+  })()
   const mockOutputJsonValid = (() => {
     if (mockOutputHasTemplate) return true
     try {
@@ -2518,6 +2570,13 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
     setPanelTab('properties')
     setExecutionTab('output')
     setTriggerExecutionType(String(node.data?.triggerExecutionType || 'webhook') as 'webhook' | 'async' | 'sync')
+    setSlackTriggerMode(String(node.data?.slackTriggerMode || (isSlackCustomEventsTrigger ? 'custom-events' : isSlackSlashCommandTrigger ? 'slash-command' : 'slash-command')) as 'slash-command' | 'custom-events')
+    setSlackSlashCommand(String(node.data?.slackSlashCommand || 'check_url'))
+    setSlackSlashConditionEnabled(Boolean(node.data?.slackSlashConditionEnabled ?? true))
+    setSlackExtractUrlsPath(String(node.data?.slackExtractUrlsPath || '$.event.text'))
+    setSlackEventSubscription(String(node.data?.slackEventSubscription || 'messages.channels') as 'messages.channels' | 'message.groups')
+    setSlackEventChannel(String(node.data?.slackEventChannel || '#security'))
+    setSlackEventTextFilter(String(node.data?.slackEventTextFilter || 'check url'))
     setMockOutputEnabled(Boolean(node.data?.mockOutputEnabled))
     setMockOutputText(String(node.data?.mockOutputText || buildMockOutputExample(String(node.data?.label || ''))))
     setMockMenuOpen(false)
@@ -2529,6 +2588,13 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
     setCircleciIntegrationName(String(node.data?.circleciIntegrationName || DEFAULT_CIRCLECI_INTEGRATION))
     setCircleciStatusChannel(String(node.data?.circleciStatusChannel || DEFAULT_CIRCLECI_STATUS_CHANNEL))
     setCircleciStatusNote(String(node.data?.circleciStatusNote || ''))
+    setSlackStepMode(String(node.data?.slackStepMode || (isSlackMessageBlocksStep ? 'message-blocks' : isSlackAskQuestionStep ? 'ask-question' : 'send-message')) as 'send-message' | 'ask-question' | 'message-blocks')
+    setSlackQuestionResponses(String(node.data?.slackQuestionResponses || 'Yes,No'))
+    setSlackQuestionResponseType(String(node.data?.slackQuestionResponseType || 'buttons') as 'buttons' | 'single-select' | 'multi-select')
+    setSlackResponsesRequiringNote(String(node.data?.slackResponsesRequiringNote || 'Yes'))
+    setSlackThreadTs(String(node.data?.slackThreadTs || '{{ $.ask_a_question.ts }}'))
+    setSlackWaitDurationPath(String(node.data?.slackWaitDurationPath || '$.ask_a_question.note_response'))
+    setSlackBlocksPayload(String(node.data?.slackBlocksPayload || DEFAULT_SLACK_BLOCKS_PAYLOAD))
     setAutocomplete(null)
     setActiveField(null)
     setPickerOpenFor(null)
@@ -2734,7 +2800,157 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
           </div>
         ) : (
           <div>
-            {isWebhookTrigger ? (
+            {isSlackTrigger ? (
+              <>
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Slack trigger type</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    {[
+                      { id: 'slash-command', label: 'Slash command' },
+                      { id: 'custom-events', label: 'Custom events' },
+                    ].map((option) => (
+                      <button
+                        key={option.id}
+                        onClick={() => {
+                          const mode = option.id as 'slash-command' | 'custom-events'
+                          setSlackTriggerMode(mode)
+                          persistNodeData({ slackTriggerMode: mode })
+                        }}
+                        style={{
+                          background: slackTriggerMode === option.id ? '#334155' : '#17191e',
+                          border: '1px solid #333842',
+                          borderRadius: 6,
+                          color: '#e2e8f0',
+                          padding: '8px 10px',
+                          textAlign: 'left',
+                          cursor: 'pointer',
+                          fontSize: 12,
+                          fontWeight: 600,
+                        }}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {slackTriggerMode === 'slash-command' ? (
+                  <>
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Command name</div>
+                      <input
+                        value={slackSlashCommand}
+                        onChange={(event) => {
+                          const value = event.target.value
+                          setSlackSlashCommand(value)
+                          persistNodeData({ slackSlashCommand: value })
+                        }}
+                        placeholder="check_url"
+                        style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none', fontFamily: 'monospace' }}
+                      />
+                    </div>
+
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Only trigger on this command</div>
+                      <div style={{ display: 'inline-flex', border: '1px solid #333842', borderRadius: 8, overflow: 'hidden' }}>
+                        <button
+                          onClick={() => {
+                            setSlackSlashConditionEnabled(true)
+                            persistNodeData({ slackSlashConditionEnabled: true })
+                          }}
+                          style={{ background: slackSlashConditionEnabled ? '#111827' : '#1f2937', color: '#fff', border: 'none', padding: '6px 14px', cursor: 'pointer', fontSize: 12 }}
+                        >
+                          Yes
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSlackSlashConditionEnabled(false)
+                            persistNodeData({ slackSlashConditionEnabled: false })
+                          }}
+                          style={{ background: !slackSlashConditionEnabled ? '#111827' : '#1f2937', color: '#fff', border: 'none', padding: '6px 14px', cursor: 'pointer', fontSize: 12 }}
+                        >
+                          No
+                        </button>
+                      </div>
+                    </div>
+
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Extract URLs from event</div>
+                      <input
+                        value={slackExtractUrlsPath}
+                        onChange={(event) => {
+                          const value = event.target.value
+                          setSlackExtractUrlsPath(value)
+                          persistNodeData({ slackExtractUrlsPath: value })
+                        }}
+                        placeholder="$.event.text"
+                        style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
+                      />
+                    </div>
+
+                    <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.6 }}>
+                      <strong style={{ color: '#e2e8f0' }}>Event JSON helpers</strong><br />
+                      Command text: <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>$.event.text</span><br />
+                      Channel: <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>$.event.channel_id</span><br />
+                      User mention: <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ $.event.user_name }}'}</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Subscribed event</div>
+                      <div style={{ position: 'relative' }}>
+                        <select
+                          value={slackEventSubscription}
+                          onChange={(event) => {
+                            const value = event.target.value as 'messages.channels' | 'message.groups'
+                            setSlackEventSubscription(value)
+                            persistNodeData({ slackEventSubscription: value })
+                          }}
+                          style={{ width: '100%', appearance: 'none', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                        >
+                          <option value="messages.channels">messages.channels (public)</option>
+                          <option value="message.groups">message.groups (private)</option>
+                        </select>
+                        <ChevronDown size={14} color="#9ca3af" style={{ position: 'absolute', right: 12, top: 12, pointerEvents: 'none' }} />
+                      </div>
+                    </div>
+
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Channel filter</div>
+                      <input
+                        value={slackEventChannel}
+                        onChange={(event) => {
+                          const value = event.target.value
+                          setSlackEventChannel(value)
+                          persistNodeData({ slackEventChannel: value })
+                        }}
+                        placeholder="#security"
+                        style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                      />
+                    </div>
+
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Message contains</div>
+                      <input
+                        value={slackEventTextFilter}
+                        onChange={(event) => {
+                          const value = event.target.value
+                          setSlackEventTextFilter(value)
+                          persistNodeData({ slackEventTextFilter: value })
+                        }}
+                        placeholder="check url"
+                        style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                      />
+                    </div>
+
+                    <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.6 }}>
+                      Use this trigger to monitor channels and route follow-up checks such as <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>Check URL &lt;URL&gt; with &lt;vendor&gt;</span>.
+                    </div>
+                  </>
+                )}
+              </>
+            ) : isWebhookTrigger ? (
               <>
                 <div style={{ marginBottom: 16 }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Select trigger execution type</div>
@@ -2933,6 +3149,31 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
               </>
             ) : isMessageLikeStep ? (
               <>
+                {isSlack && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Slack step type</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                      {[
+                        { id: 'send-message', label: 'Send message' },
+                        { id: 'ask-question', label: 'Ask question' },
+                        { id: 'message-blocks', label: 'Message blocks' },
+                      ].map((option) => (
+                        <button
+                          key={option.id}
+                          onClick={() => {
+                            const mode = option.id as 'send-message' | 'ask-question' | 'message-blocks'
+                            setSlackStepMode(mode)
+                            persistNodeData({ slackStepMode: mode })
+                          }}
+                          style={{ background: slackStepMode === option.id ? '#334155' : '#17191e', border: '1px solid #333842', borderRadius: 6, color: '#e2e8f0', padding: '8px 10px', textAlign: 'left', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div style={{ marginBottom: 16, position: 'relative' }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <span>Recipient</span>
@@ -2997,9 +3238,10 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                   )}
                 </div>
 
+                {(slackStepMode !== 'message-blocks' || !isSlack) && (
                 <div style={{ marginBottom: 24, position: 'relative' }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span>Message text</span>
+                    <span>{isSlack && slackStepMode === 'ask-question' ? 'Question text' : 'Message text'}</span>
                     <button
                       onClick={() => setPickerOpenFor((prev) => (prev === 'message' ? null : 'message'))}
                       style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}
@@ -3023,7 +3265,7 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                       const target = event.currentTarget
                       updateAutocomplete('message', target.value, target.selectionStart ?? target.value.length)
                     }}
-                    placeholder="Type message. Use {{ $.metadata. }} for execution context"
+                    placeholder={isSlack && slackStepMode === 'ask-question' ? 'Confirm URL scan for {{ $.loop.current_url }}?' : 'Type message. Use {{ $.metadata. }} for execution context'}
                     style={{ width: '100%', minHeight: 150, background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
                   />
 
@@ -3060,10 +3302,124 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                     </div>
                   )}
                 </div>
+                )}
+
+                {isSlack && slackStepMode === 'ask-question' && (
+                  <>
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Responses</div>
+                      <input
+                        value={slackQuestionResponses}
+                        onChange={(event) => {
+                          const value = event.target.value
+                          setSlackQuestionResponses(value)
+                          persistNodeData({ slackQuestionResponses: value })
+                        }}
+                        placeholder="Yes,No"
+                        style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                      />
+                    </div>
+
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Response type</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                        {[
+                          { id: 'buttons', label: 'Buttons' },
+                          { id: 'single-select', label: 'Single select' },
+                          { id: 'multi-select', label: 'Multi select' },
+                        ].map((option) => (
+                          <button
+                            key={option.id}
+                            onClick={() => {
+                              const value = option.id as 'buttons' | 'single-select' | 'multi-select'
+                              setSlackQuestionResponseType(value)
+                              persistNodeData({ slackQuestionResponseType: value })
+                            }}
+                            style={{ background: slackQuestionResponseType === option.id ? '#334155' : '#17191e', border: '1px solid #333842', borderRadius: 6, color: '#e2e8f0', padding: '8px 10px', textAlign: 'left', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>RESPONSES_REQUIRING_NOTE</div>
+                      <input
+                        value={slackResponsesRequiringNote}
+                        onChange={(event) => {
+                          const value = event.target.value
+                          setSlackResponsesRequiringNote(value)
+                          persistNodeData({ slackResponsesRequiringNote: value })
+                        }}
+                        placeholder="Yes"
+                        style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none', fontFamily: 'monospace' }}
+                      />
+                    </div>
+
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>THREAD_TS</div>
+                      <input
+                        value={slackThreadTs}
+                        onChange={(event) => {
+                          const value = event.target.value
+                          setSlackThreadTs(value)
+                          persistNodeData({ slackThreadTs: value })
+                        }}
+                        placeholder="{{ $.ask_a_question.ts }}"
+                        style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
+                      />
+                    </div>
+
+                    <div style={{ marginBottom: 16 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Wait duration path</div>
+                      <input
+                        value={slackWaitDurationPath}
+                        onChange={(event) => {
+                          const value = event.target.value
+                          setSlackWaitDurationPath(value)
+                          persistNodeData({ slackWaitDurationPath: value })
+                        }}
+                        placeholder="$.ask_a_question.note_response"
+                        style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
+                      />
+                    </div>
+                  </>
+                )}
+
+                {isSlack && slackStepMode === 'message-blocks' && (
+                  <>
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Blocks payload (JSON array)</div>
+                      <textarea
+                        value={slackBlocksPayload}
+                        onChange={(event) => {
+                          const value = event.target.value
+                          setSlackBlocksPayload(value)
+                          persistNodeData({ slackBlocksPayload: value })
+                        }}
+                        placeholder="Paste Slack Block Kit payload"
+                        style={{ width: '100%', minHeight: 180, background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
+                      />
+                    </div>
+
+                    <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: `1px solid ${slackBlocksJsonValid ? '#14532d' : '#7f1d1d'}`, background: slackBlocksJsonValid ? 'rgba(20,83,45,0.25)' : 'rgba(127,29,29,0.25)', color: slackBlocksJsonValid ? '#86efac' : '#fca5a5', fontSize: 11, lineHeight: 1.5 }}>
+                      {slackBlocksJsonValid
+                        ? 'Blocks payload is valid JSON and ready for Send Slack Message Blocks.'
+                        : 'Blocks payload must be valid JSON.'}
+                    </div>
+                  </>
+                )}
 
                 <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.5 }}>
                   Use workflow context in inputs: <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ $.event.user.firstName }}'}</span> or <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ $.metadata.execution_id }}'}</span>
                 </div>
+
+                {isSlack && (
+                  <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.5 }}>
+                    Slack shortcuts: recipient <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>#{'{'}{'{'} $.event.channel_id {'}'}{'}'}</span>, mention <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ $.event.user_name }}'}</span>, response <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>$.ask_a_question.slack_response</span>.
+                  </div>
+                )}
 
                 {isEmailStep && (
                   <>
