@@ -1137,6 +1137,7 @@ const DEFAULT_NESTED_CONTEXT_INTEGRATION =
 const DEFAULT_DATETIME_BASE_FORMAT = '%Y-%m-%dT%H:%M:%S:%f'
 const DEFAULT_ADVANCED_TEMPLATE = '{{ len $.hosts }}'
 const DEFAULT_URLQUERY_SOURCE = 'https://www.torq.io/?q=security automation'
+const DEFAULT_JQ_EXPRESSION = 'reduce .[] as $i ({}; .[$i.description] = $i)'
 
 const SAMPLE_HOSTS_CONTEXT = {
   hosts: [
@@ -1169,6 +1170,327 @@ const ADVANCED_TEMPLATE_EXAMPLES = [
   { label: 'range', template: 'We currently have {{ len $.hosts }} hosts and their names are: {{ range $index, $host:= $.hosts }} {{ $host.name }} {{ end }}' },
   { label: 'urlquery', template: '{{ urlquery $.unescaped_url.result }}' },
 ]
+
+const JQ_EXPRESSION_LIBRARY = [
+  {
+    label: 'Filter records older than 90 days',
+    expression:
+      'group_by(.userPrincipalName) | map(.[] + {"lastSignInDateEpoch":(.[].signInActivity.lastSignInDateTime //empty | fromdateiso8601 as $Epochdate | $Epochdate) }) | .[] | select (.lastSignInDateEpoch < {{ $.get_date.timestamp }} )',
+    description: 'Filter array records by computed sign-in epoch timestamp.',
+  },
+  {
+    label: 'Compare arrays by common key',
+    expression: '[[.[0]+.[1] | group_by(.email)[] ] | .[] |select (length > 1) |add]',
+    description: 'Merge two arrays and keep records that share the same email key.',
+  },
+  {
+    label: 'Reduce array into object',
+    expression: 'reduce .[] as $i ({}; .[$i.description] = $i)',
+    description: 'Convert list into object keyed by description.',
+  },
+  {
+    label: 'Merge data points into array',
+    expression:
+      '.[] | {"event":.,"time": (.timestamp | scan("(.+?)([.][0-9]+)?Z$") | [(.[0] + "Z" | fromdateiso8601), (.[1] // 0 | tonumber)] | add), "index": "{{ $.set_workflow_variables.vars.splunk_index }}", "source": "{{ $.set_workflow_variables.vars.splunk_source }}", "host": "{{ $.set_workflow_variables.vars.splunk_host }}", "sourcetype": "{{ $.set_workflow_variables.vars.splunk_sourcetype }}" }',
+    description: 'Map each event to Splunk payload shape with computed timestamp.',
+  },
+  {
+    label: 'Delete keys from JSON',
+    expression: '[.[] | del (.field3)]',
+    description: 'Delete a field from each object without listing all keys.',
+  },
+  {
+    label: 'Concatenate and dedupe 5 lists',
+    expression: '[.[0]+.[1]+.[2]+.[3]+.[4] ] | add | unique',
+    description: 'Concatenate multiple lists and remove duplicates.',
+  },
+]
+
+const SPRIG_FUNCTIONS_LIBRARY = [
+  {
+    category: 'Date and Time',
+    functions: [
+      { name: 'now', template: '{{ now }}', description: 'Current timestamp' },
+      { name: 'date', template: '{{ now | date "2006-01-02" }}', description: 'Format timestamp with layout' },
+      { name: 'unixEpoch', template: '{{ unixEpoch now }}', description: 'Unix timestamp (seconds)' },
+      { name: 'ago', template: '{{ $.timestamp | ago }}', description: 'Time elapsed since timestamp' },
+      { name: 'toDate', template: '{{ toDate "2006-01-02T15:04:05Z" "2025-10-04T15:30:00Z" }}', description: 'Parse date string' },
+      { name: 'date_in_zone', template: '{{ date_in_zone "2006-01-02T15:04:05Z" (now) "America/Chicago" }}', description: 'Convert to timezone' },
+      { name: 'date_modify', template: '{{ now | date_modify "-2h" | date "2006-01-02T15:04:05Z" }}', description: 'Add/subtract duration' },
+      { name: 'duration', template: '{{ duration "7199" }}', description: 'Convert duration string' },
+      { name: 'now.Unix', template: '{{ now.Unix }}', description: 'Current Unix timestamp' },
+      { name: 'now.UnixMilli', template: '{{ now.UnixMilli }}', description: 'Current timestamp in milliseconds' },
+      { name: 'now.Year', template: '{{ now.Year }}', description: 'Current year' },
+      { name: 'now.Month', template: '{{ now.Month }}', description: 'Current month name' },
+      { name: 'now.Day', template: '{{ now.Day }}', description: 'Current day of month' },
+      { name: 'now.Weekday', template: '{{ now.Weekday }}', description: 'Current day of week' },
+    ],
+  },
+  {
+    category: 'Base64',
+    functions: [
+      { name: 'b64enc', template: '{{ b64enc "hello world" }}', description: 'Base64 encode' },
+      { name: 'b64dec', template: '{{ b64dec "aGVsbG8gd29ybGQ=" }}', description: 'Base64 decode' },
+    ],
+  },
+  {
+    category: 'Defaults and Logic',
+    functions: [
+      { name: 'default', template: '{{ default "N/A" $.user.email }}', description: 'Provide default value if empty' },
+      { name: 'ternary', template: '{{ ternary "High" "Low" (gt $.severity 7) }}', description: 'Conditional value selection' },
+      { name: 'empty', template: '{{ empty $.field }}', description: 'Check if value is empty' },
+    ],
+  },
+  {
+    category: 'Data Conversion',
+    functions: [
+      { name: 'jsonEscape', template: '{{ jsonEscape "hello \\"world\\"" }}', description: 'Escape for JSON' },
+      { name: 'toJson', template: '{{ toJson (dict "user" "alice") }}', description: 'Convert to JSON' },
+      { name: 'toPrettyJson', template: '{{ toPrettyJson (dict "user" "alice") }}', description: 'Pretty-print JSON' },
+      { name: 'toRawJson', template: '{{ toRawJson (dict "user" "alice") }}', description: 'Raw JSON (no escape)' },
+      { name: 'int', template: '{{ int "42" }}', description: 'Convert to integer' },
+      { name: 'toString', template: '{{ toString 42 }}', description: 'Convert to string' },
+      { name: 'toStrings', template: '{{ toStrings (list 1 true "alert") }}', description: 'Convert list to strings' },
+    ],
+  },
+  {
+    category: 'String Manipulation',
+    functions: [
+      { name: 'trim', template: '{{ trim " alert triggered " }}', description: 'Remove spaces' },
+      { name: 'trimAll', template: '{{ trimAll "-" "----alert----" }}', description: 'Remove all specified chars' },
+      { name: 'trimPrefix', template: '{{ trimPrefix "user_" "user_admin" }}', description: 'Remove prefix' },
+      { name: 'trimSuffix', template: '{{ trimSuffix ".log" "incident.log" }}', description: 'Remove suffix' },
+      { name: 'upper', template: '{{ upper "torq" }}', description: 'Uppercase' },
+      { name: 'lower', template: '{{ lower "TORQ" }}', description: 'Lowercase' },
+      { name: 'title', template: '{{ title "security incident" }}', description: 'Title case' },
+      { name: 'substr', template: '{{ substr 4 12 "TorqSecurityPlatform" }}', description: 'Extract substring' },
+      { name: 'nospace', template: '{{ nospace "SOC Operations" }}', description: 'Remove whitespace' },
+      { name: 'trunc', template: '{{ trunc 5 "incidentresponse" }}', description: 'Truncate string' },
+      { name: 'contains', template: '{{ contains "Malware" $.alert_message }}', description: 'Check substring exists' },
+      { name: 'replace', template: '{{ replace " " "-" "SOC Alert Active" }}', description: 'Replace substring' },
+      { name: 'join', template: '{{ join "," (list "a" "b" "c") }}', description: 'Join array into string' },
+      { name: 'split', template: '{{ split "," "a,b,c" }}', description: 'Split string into list' },
+      { name: 'snakecase', template: '{{ snakecase "Security Incident" }}', description: 'snake_case format' },
+      { name: 'camelcase', template: '{{ camelcase "Security Incident" }}', description: 'camelCase format' },
+      { name: 'kebabcase', template: '{{ kebabcase "Security Incident" }}', description: 'kebab-case format' },
+      { name: 'hasPrefix', template: '{{ hasPrefix "alert_" "alert_high" }}', description: 'Check prefix match' },
+      { name: 'hasSuffix', template: '{{ hasSuffix "_high" "alert_high" }}', description: 'Check suffix match' },
+      { name: 'wrap', template: '{{ wrap 30 "This is a long statement" }}', description: 'Wrap text with newlines' },
+    ],
+  },
+  {
+    category: 'Regex',
+    functions: [
+      { name: 'regexMatch', template: '{{ regexMatch "^user.*" "user123" }}', description: 'Test regex pattern' },
+      { name: 'regexFind', template: '{{ regexFind "[0-9]+" "User123LoggedIn" }}', description: 'Find first match' },
+      { name: 'regexFindAll', template: '{{ regexFindAll "[0-9]+" "Item12Box34" -1 }}', description: 'Find all matches' },
+      { name: 'regexReplaceAll', template: '{{ regexReplaceAll "[0-9]+" "#" "User123LoggedIn" }}', description: 'Replace all matches' },
+      { name: 'regexSplit', template: '{{ regexSplit "[,;\\s]+" "alpha, beta; gamma" -1 }}', description: 'Split by regex pattern' },
+    ],
+  },
+  {
+    category: 'Math',
+    functions: [
+      { name: 'add', template: '{{ add 5 3 }}', description: 'Addition' },
+      { name: 'sub', template: '{{ sub 10 4 }}', description: 'Subtraction' },
+      { name: 'mul', template: '{{ mul 3 5 }}', description: 'Multiplication' },
+      { name: 'div', template: '{{ div 20 4 }}', description: 'Division' },
+      { name: 'add1', template: '{{ add1 4 }}', description: 'Increment by 1' },
+      { name: 'mod', template: '{{ mod 10 3 }}', description: 'Modulus (remainder)' },
+      { name: 'max', template: '{{ max 3 7 2 }}', description: 'Maximum value' },
+      { name: 'min', template: '{{ min 3 7 2 }}', description: 'Minimum value' },
+      { name: 'floor', template: '{{ floor 4.9 }}', description: 'Round down' },
+      { name: 'ceil', template: '{{ ceil 4.1 }}', description: 'Round up' },
+      { name: 'round', template: '{{ round 4.5 }}', description: 'Round to nearest' },
+    ],
+  },
+  {
+    category: 'Lists',
+    functions: [
+      { name: 'list', template: '{{ list "one" "two" "three" | toJson }}', description: 'Create array' },
+      { name: 'first', template: '{{ first $.items }}', description: 'Get first element' },
+      { name: 'last', template: '{{ last $.items }}', description: 'Get last element' },
+      { name: 'rest', template: '{{ rest (list 1 2 3) | toJson }}', description: 'All but first' },
+      { name: 'initial', template: '{{ initial $.items | toJson }}', description: 'All but last' },
+      { name: 'append', template: '{{ append $.items 4 | toJson }}', description: 'Add to end' },
+      { name: 'prepend', template: '{{ prepend $.items 0 | toJson }}', description: 'Add to beginning' },
+      { name: 'uniq', template: '{{ uniq $.items | toJson }}', description: 'Remove duplicates' },
+      { name: 'without', template: '{{ without (list 1 2 3 4) 2 4 }}', description: 'Exclude values' },
+      { name: 'slice', template: '{{ slice $.items 1 3 | toJson }}', description: 'Extract sub-array' },
+      { name: 'has', template: '{{ has "error" $.items }}', description: 'Check item exists' },
+      { name: 'len', template: '{{ len $.items }}', description: 'Array/string length' },
+    ],
+  },
+  {
+    category: 'Dictionaries',
+    functions: [
+      { name: 'dict', template: '{{ dict "name" "Alice" "age" 30 | toJson }}', description: 'Create object' },
+      { name: 'keys', template: '{{ keys (dict "a" 1 "b" 2) | toJson }}', description: 'Get all keys' },
+      { name: 'values', template: '{{ values (dict "a" 1 "b" 2) | toJson }}', description: 'Get all values' },
+      { name: 'set', template: '{{ set (dict "a" 1) "b" 2 | toJson }}', description: 'Add/update key' },
+      { name: 'unset', template: '{{ unset (dict "a" 1 "b" 2) "a" | toJson }}', description: 'Remove key' },
+      { name: 'hasKey', template: '{{ hasKey (dict "a" 1) "a" }}', description: 'Check key exists' },
+      { name: 'merge', template: '{{ merge (dict "a" 1) (dict "b" 2) | toJson }}', description: 'Combine objects' },
+    ],
+  },
+]
+
+function renderSprigFunctionPreview(templateInput: string) {
+  if (!templateInput.trim()) {
+    return 'Preview unavailable - Enter a template'
+  }
+
+  try {
+    if (templateInput.includes('now')) {
+      const now = new Date()
+      const year = now.getFullYear()
+      const month = String(now.getMonth() + 1).padStart(2, '0')
+      const day = String(now.getDate()).padStart(2, '0')
+      const hours = String(now.getHours()).padStart(2, '0')
+      const minutes = String(now.getMinutes()).padStart(2, '0')
+      const seconds = String(now.getSeconds()).padStart(2, '0')
+
+      if (templateInput.includes('now.Unix')) {
+        return String(Math.floor(now.getTime() / 1000))
+      }
+      if (templateInput.includes('now.UnixMilli')) {
+        return String(now.getTime())
+      }
+      if (templateInput.includes('now.Year')) {
+        return String(year)
+      }
+      if (templateInput.includes('now.Month')) {
+        return ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'][now.getMonth()]
+      }
+      if (templateInput.includes('now.Day')) {
+        return String(now.getDate())
+      }
+      if (templateInput.includes('now.Weekday')) {
+        return ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][now.getDay()]
+      }
+      if (templateInput.includes('date "2006-01-02"')) {
+        return `${year}-${month}-${day}`
+      }
+      return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+    }
+
+    if (templateInput.includes('b64enc')) {
+      const match = templateInput.match(/b64enc\s*"([^"]*)"/)
+      if (match) {
+        return btoa(match[1])
+      }
+      return 'Invalid b64enc format'
+    }
+
+    if (templateInput.includes('b64dec')) {
+      const match = templateInput.match(/b64dec\s*"([^"]*)"/)
+      if (match) {
+        try {
+          return atob(match[1])
+        } catch {
+          return 'Invalid base64 string'
+        }
+      }
+      return 'Invalid b64dec format'
+    }
+
+    if (templateInput.includes('upper')) {
+      const match = templateInput.match(/upper\s*"([^"]*)"|upper\s+(\w+)/i)
+      if (match && (match[1] || match[2])) {
+        return (match[1] || match[2]).toUpperCase()
+      }
+      return 'EXAMPLE_TEXT'
+    }
+
+    if (templateInput.includes('lower')) {
+      const match = templateInput.match(/lower\s*"([^"]*)"|lower\s+(\w+)/i)
+      if (match && (match[1] || match[2])) {
+        return (match[1] || match[2]).toLowerCase()
+      }
+      return 'example_text'
+    }
+
+    if (templateInput.includes('len')) {
+      if (templateInput.includes('$.items')) {
+        return '5'
+      }
+      const strMatch = templateInput.match(/len\s*"([^"]*)"/i)
+      if (strMatch) {
+        return String(strMatch[1].length)
+      }
+      return '0'
+    }
+
+    if (templateInput.includes('contains')) {
+      if (templateInput.includes('Malware')) {
+        return 'true'
+      }
+      return 'false'
+    }
+
+    if (templateInput.includes('join')) {
+      const match = templateInput.match(/join\s*"([^"]*)"/i)
+      if (match) {
+        return ['a', 'b', 'c'].join(match[1])
+      }
+      return 'a, b, c'
+    }
+
+    if (templateInput.includes('add ')) {
+      const match = templateInput.match(/add\s+(\d+)\s+(\d+)/i)
+      if (match) {
+        return String(Number(match[1]) + Number(match[2]))
+      }
+      return '8'
+    }
+
+    if (templateInput.includes('sub ')) {
+      const match = templateInput.match(/sub\s+(\d+)\s+(\d+)/i)
+      if (match) {
+        return String(Number(match[1]) - Number(match[2]))
+      }
+      return '6'
+    }
+
+    return 'Preview unavailable - Limited preview available for custom templates'
+  } catch (error) {
+    return 'Error evaluating preview'
+  }
+}
+
+function renderJqPreview(expression: string) {
+  const value = expression.trim()
+  if (!value) {
+    return 'Preview unavailable - Enter a jq expression'
+  }
+
+  if (value.includes('group_by(.userPrincipalName)')) {
+    return '[{"userPrincipalName":"alice@acme.io","lastSignInDateEpoch":1701240000}]'
+  }
+
+  if (value.includes('group_by(.email)')) {
+    return '[{"email":"analyst@acme.io","sourceA":true,"sourceB":true}]'
+  }
+
+  if (value.startsWith('reduce .[] as $i')) {
+    return '{"criticalAlert":{"description":"criticalAlert","count":4}}'
+  }
+
+  if (value.includes('scan("(.+?)([.][0-9]+)?Z$")')) {
+    return '{"event":{"id":"evt-1"},"time":1712223630.125,"index":"main","source":"torq"}'
+  }
+
+  if (value.includes('del (.field3)')) {
+    return '[{"field1":"a","field2":"b"}]'
+  }
+
+  if (value.includes('add | unique')) {
+    return '["alice","bob","carol"]'
+  }
+
+  return 'Preview is available for built-in examples. Insert an example above to evaluate output.'
+}
+
 const DEFAULT_PYTHON_SCRIPT = [
   'import json',
   '',
@@ -1176,6 +1498,84 @@ const DEFAULT_PYTHON_SCRIPT = [
   'payload = {"raw_data": raw_text}',
   'print(json.dumps(payload))',
 ].join('\n')
+const DEFAULT_PYTHON_REQUIREMENTS = ''
+
+const PYTHON_STEP_VARIANTS = [
+  {
+    id: 'inline',
+    title: 'Run an inline Python Script',
+    version: 'Python 3.13',
+    packages: ['Standard Library', 'pyOpenSSL', 'crcmod', 'requests'],
+  },
+  {
+    id: 'data_processing',
+    title: 'Run a Python Data Processing Script',
+    version: 'Python 3.11',
+    packages: ['Standard Library', 'pyOpenSSL', 'crcmod', 'requests', 'pandas', 'numpy', 'openpyxl'],
+  },
+  {
+    id: 'database_tools',
+    title: 'Run a Python Script with Database Tools',
+    version: 'Python 3.11',
+    packages: ['pandas', 'numpy', 'openpyxl', 'psycopg', 'PyMySQL', 'pymssql'],
+  },
+  {
+    id: 'ioc_extraction',
+    title: 'Run a Python IOC Extraction Script',
+    version: 'Python 3.9',
+    packages: ['ioc-finder', 'msticpy', 'pydantic', 'jinja2', 'ruamel.yaml', 'python-json-logger'],
+  },
+]
+
+const PYTHON_SCRIPT_TEMPLATES = [
+  {
+    label: 'Pass previous step value',
+    script: [
+      'data = """{{ $.get_data.result }}"""',
+      'print(f"Data from previous step: {data}")',
+    ].join('\n'),
+  },
+  {
+    label: 'Return stdout parameter',
+    script: [
+      'result = "Hello, Torq!"',
+      'print(result)',
+    ].join('\n'),
+  },
+  {
+    label: 'Parse nested JSON safely',
+    script: [
+      'import json',
+      '',
+      'string_json_data = """{{ $.collect_ip_reputation.result }}"""',
+      'json_data = json.loads(string_json_data)',
+      'print(json.dumps(json_data), end="")',
+    ].join('\n'),
+  },
+  {
+    label: 'Trigger Torq webhook',
+    script: [
+      'import requests',
+      'import json',
+      '',
+      'url = "{{ $.workflow_parameters.url_for_torq_webhook }}"',
+      'data = {{ $.workflow_parameters.json_to_send }}',
+      'headers = {',
+      '    "{{ $.workflow_parameters.torq_auth_header_name }}": "{{ $.workflow_parameters.torq_auth_header_secret }}"',
+      '}',
+      'response = requests.post(url, headers=headers, json=data)',
+      'print(json.dumps({"Status Code": response.status_code}))',
+    ].join('\n'),
+  },
+  {
+    label: 'Graceful list output',
+    script: [
+      'limited_usernames = ["Alice", "Bob", "Charlie"]',
+      'limited_usernames_str = ",".join(limited_usernames)',
+      'print(limited_usernames_str, end="")',
+    ].join('\n'),
+  },
+]
 
 function jsonEscapeInlineValue(value: string) {
   return JSON.stringify(value).slice(1, -1)
@@ -1368,16 +1768,19 @@ function renderAdvancedTemplatePreview(template: string, urlSource: string) {
 }
 
 function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => void }) {
+  const stepDescriptor = `${String(node.data?.label || '')} ${String(node.data?.subtext || '')}`
   const isTrigger = node.type === 'trigger'
   const isMessageLikeStep = /message|slack|ticket|log/i.test(String(node.data?.label || ''))
   const isEmailStep = /gmail|email/i.test(String(node.data?.subtext || '')) || /email|gmail/i.test(String(node.data?.label || ''))
   const isDateTimeStep = /date|time|datetime|timestamp/i.test(String(node.data?.label || ''))
   const isAdvancedTemplateStep = /template|golang|urlquery|print/i.test(String(node.data?.label || ''))
+  const isJqStep = /run\s*jq|jq command|\bjq\b/i.test(stepDescriptor)
   const isCurlyEscapeStep = /escape\s*\{\}/i.test(String(node.data?.label || ''))
   const isRawDataStep = /raw data/i.test(String(node.data?.label || ''))
   const isAddToJsonStep = /add to json/i.test(String(node.data?.label || ''))
   const isEscapeJsonStep = /escape json|string utils|escaped string/i.test(String(node.data?.label || ''))
   const isPythonStep = /python/i.test(String(node.data?.label || ''))
+  const isSprigFunctionStep = /sprig|function|dynamic data|manipulation/i.test(String(node.data?.label || ''))
   const { nodes, edges, setNodes, setEdges, selectNode, persistCurrentWorkflowGraph } = useWorkflowStore()
   const [isHttpMode, setIsHttpMode] = useState(false)
   const [showHttpConfirm, setShowHttpConfirm] = useState(false)
@@ -1390,10 +1793,15 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const [escapeJsonInput, setEscapeJsonInput] = useState(String(node.data?.escapeJsonInput || DEFAULT_ESCAPE_JSON_INPUT))
   const [pythonInput, setPythonInput] = useState(String(node.data?.pythonInput || DEFAULT_PYTHON_INPUT))
   const [pythonScript, setPythonScript] = useState(String(node.data?.pythonScript || DEFAULT_PYTHON_SCRIPT))
+  const [pythonStepVariant, setPythonStepVariant] = useState(String(node.data?.pythonStepVariant || 'inline'))
+  const [pythonRequirements, setPythonRequirements] = useState(String(node.data?.pythonRequirements || DEFAULT_PYTHON_REQUIREMENTS))
   const [dateTimeBaseFormat, setDateTimeBaseFormat] = useState(String(node.data?.dateTimeBaseFormat || DEFAULT_DATETIME_BASE_FORMAT))
   const [fractionalDigits, setFractionalDigits] = useState<number>(Number(node.data?.fractionalDigits || 9))
   const [advancedTemplateInput, setAdvancedTemplateInput] = useState(String(node.data?.advancedTemplateInput || DEFAULT_ADVANCED_TEMPLATE))
   const [urlQuerySource, setUrlQuerySource] = useState(String(node.data?.urlQuerySource || DEFAULT_URLQUERY_SOURCE))
+  const [jqExpressionInput, setJqExpressionInput] = useState(String(node.data?.jqExpressionInput || DEFAULT_JQ_EXPRESSION))
+  const [sprigFunctionInput, setSprigFunctionInput] = useState(String(node.data?.sprigFunctionInput || '{{ add 5 3 }}'))
+  const [expandedCategory, setExpandedCategory] = useState<string | null>('String Manipulation')
   const [activeField, setActiveField] = useState<'recipient' | 'message' | 'addjson' | null>(null)
   const [pickerOpenFor, setPickerOpenFor] = useState<'recipient' | 'message' | 'addjson' | null>(null)
   const [autocomplete, setAutocomplete] = useState<{
@@ -1423,6 +1831,8 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const filteredContextPaths = WORKFLOW_CONTEXT_PATHS.filter((item) =>
     item.path.toLowerCase().includes(contextQuery),
   )
+  const selectedPythonVariant =
+    PYTHON_STEP_VARIANTS.find((item) => item.id === pythonStepVariant) || PYTHON_STEP_VARIANTS[0]
 
   const persistNodeData = (partial: Record<string, unknown>) => {
     const nextNodes = nodes.map((item) =>
@@ -1570,10 +1980,15 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
     setEscapeJsonInput(String(node.data?.escapeJsonInput || DEFAULT_ESCAPE_JSON_INPUT))
     setPythonInput(String(node.data?.pythonInput || DEFAULT_PYTHON_INPUT))
     setPythonScript(String(node.data?.pythonScript || DEFAULT_PYTHON_SCRIPT))
+    setPythonStepVariant(String(node.data?.pythonStepVariant || 'inline'))
+    setPythonRequirements(String(node.data?.pythonRequirements || DEFAULT_PYTHON_REQUIREMENTS))
     setDateTimeBaseFormat(String(node.data?.dateTimeBaseFormat || DEFAULT_DATETIME_BASE_FORMAT))
     setFractionalDigits(Number(node.data?.fractionalDigits || 9))
     setAdvancedTemplateInput(String(node.data?.advancedTemplateInput || DEFAULT_ADVANCED_TEMPLATE))
     setUrlQuerySource(String(node.data?.urlQuerySource || DEFAULT_URLQUERY_SOURCE))
+    setJqExpressionInput(String(node.data?.jqExpressionInput || DEFAULT_JQ_EXPRESSION))
+    setSprigFunctionInput(String(node.data?.sprigFunctionInput || '{{ add 5 3 }}'))
+    setExpandedCategory('String Manipulation')
     setAutocomplete(null)
     setActiveField(null)
     setPickerOpenFor(null)
@@ -2081,6 +2496,145 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                   Includes advanced JSONPath and Golang template helpers for <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>len</span>, <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>index</span>, slicing/filtering, <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>range</span>, <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>if/else</span>, and <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>urlquery</span>.
                 </div>
               </>
+            ) : isJqStep ? (
+              <>
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>jq expression</div>
+                  <textarea
+                    value={jqExpressionInput}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      setJqExpressionInput(value)
+                      persistNodeData({ jqExpressionInput: value })
+                    }}
+                    placeholder="reduce .[] as $i ({}; .[$i.description] = $i)"
+                    style={{ width: '100%', minHeight: 120, background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 12 }}>Common jq expressions</div>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {JQ_EXPRESSION_LIBRARY.map((item) => (
+                      <button
+                        key={item.label}
+                        onClick={() => {
+                          setJqExpressionInput(item.expression)
+                          persistNodeData({ jqExpressionInput: item.expression })
+                        }}
+                        style={{ background: '#17191e', border: '1px solid #333842', color: '#e2e8f0', borderRadius: 6, padding: '8px 10px', fontSize: 11, cursor: 'pointer', textAlign: 'left' }}
+                        title={item.description}
+                      >
+                        <div style={{ fontWeight: 600, marginBottom: 3 }}>{item.label}</div>
+                        <div style={{ color: '#94a3b8' }}>{item.description}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Preview output</div>
+                  <div style={{ width: '100%', minHeight: 96, background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#86efac', fontSize: 12, fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
+                    {renderJqPreview(jqExpressionInput)}
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.5 }}>
+                  These snippets are designed for the <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>Run jq Command</span> step to filter, merge, reduce, and dedupe JSON without writing custom code.
+                </div>
+              </>
+            ) : isSprigFunctionStep ? (
+              <>
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Sprig function template</div>
+                  <textarea
+                    value={sprigFunctionInput}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      setSprigFunctionInput(value)
+                      persistNodeData({ sprigFunctionInput: value })
+                    }}
+                    placeholder='{{ add 5 3 }}'
+                    style={{ width: '100%', minHeight: 100, background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 12 }}>Available Sprig functions by category</div>
+                  {SPRIG_FUNCTIONS_LIBRARY.map((category) => (
+                    <div key={category.category} style={{ marginBottom: 12, border: '1px solid #333842', borderRadius: 6, overflow: 'hidden' }}>
+                      <button
+                        onClick={() => setExpandedCategory(expandedCategory === category.category ? null : category.category)}
+                        style={{
+                          width: '100%',
+                          background: expandedCategory === category.category ? '#334155' : '#1f2937',
+                          border: 'none',
+                          color: '#e2e8f0',
+                          padding: '10px 12px',
+                          fontSize: 12,
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <span>{category.category} ({category.functions.length})</span>
+                        <span style={{ fontSize: 10 }}>{expandedCategory === category.category ? '▼' : '▶'}</span>
+                      </button>
+                      {expandedCategory === category.category && (
+                        <div style={{ background: '#17191e', padding: '8px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                          {category.functions.map((func) => (
+                            <button
+                              key={func.name}
+                              onClick={() => {
+                                setSprigFunctionInput(func.template)
+                                persistNodeData({ sprigFunctionInput: func.template })
+                              }}
+                              style={{
+                                background: '#252830',
+                                border: '1px solid #333842',
+                                color: '#e2e8f0',
+                                borderRadius: 4,
+                                padding: '8px 10px',
+                                fontSize: 11,
+                                cursor: 'pointer',
+                                textAlign: 'left',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: 4,
+                              }}
+                              title={func.description}
+                            >
+                              <span style={{ fontFamily: 'monospace', fontWeight: 600, color: '#60a5fa' }}>{func.name}</span>
+                              <span style={{ color: '#9ca3af', fontSize: 10 }}>{func.description}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Preview</div>
+                  <div style={{ width: '100%', minHeight: 80, background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#86efac', fontSize: 12, fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
+                    {renderSprigFunctionPreview(sprigFunctionInput)}
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.5 }}>
+                  <strong style={{ color: '#f87171', display: 'block', marginBottom: 8 }}>⚠ Template evaluation errors?</strong>
+                  <div style={{ marginBottom: 8 }}>If inline Sprig functions fail due to unescaped input (e.g., <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>unexpected "," in operand</span>), move logic to utility steps:</div>
+                  <div style={{ color: '#e2e8f0', fontSize: 10, lineHeight: 1.6 }}>
+                    • <strong>Escape JSON String</strong> - Fix jsonEscape and JSON parsing errors<br />
+                    • <strong>Replace in String</strong> - Safe string manipulation<br />
+                    • <strong>Escape Curly Brackets</strong> - Handle nested templating<br />
+                    • <strong>Advanced Golang Template</strong> - Complex JSONPath queries
+                  </div>
+                </div>
+              </>
             ) : isCurlyEscapeStep ? (
               <>
                 <div style={{ marginBottom: 16 }}>
@@ -2316,6 +2870,69 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
               </>
             ) : isPythonStep ? (
               <>
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Python scripting step type</div>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {PYTHON_STEP_VARIANTS.map((variant) => (
+                      <button
+                        key={variant.id}
+                        onClick={() => {
+                          setPythonStepVariant(variant.id)
+                          persistNodeData({ pythonStepVariant: variant.id })
+                        }}
+                        style={{
+                          background: pythonStepVariant === variant.id ? '#334155' : '#17191e',
+                          border: '1px solid #333842',
+                          color: '#e2e8f0',
+                          borderRadius: 6,
+                          padding: '8px 10px',
+                          fontSize: 11,
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                        }}
+                      >
+                        <div style={{ fontWeight: 600 }}>{variant.title}</div>
+                        <div style={{ color: '#94a3b8', marginTop: 2 }}>{variant.version}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Pre-installed packages</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {selectedPythonVariant.packages.map((pkg) => (
+                      <span
+                        key={pkg}
+                        style={{
+                          border: '1px solid #333842',
+                          borderRadius: 999,
+                          padding: '4px 8px',
+                          color: '#cbd5e1',
+                          fontSize: 11,
+                          background: '#17191e',
+                        }}
+                      >
+                        {pkg}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Optional REQUIREMENTS</div>
+                  <textarea
+                    value={pythonRequirements}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      setPythonRequirements(value)
+                      persistNodeData({ pythonRequirements: value })
+                    }}
+                    placeholder={"pydantic==2.10.6\\npython-dateutil==2.9.0.post0"}
+                    style={{ width: '100%', minHeight: 70, background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
+                  />
+                </div>
+
                 <div style={{ marginBottom: 16, position: 'relative' }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <span>Workflow JSON input</span>
@@ -2341,6 +2958,24 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                 </div>
 
                 <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Script patterns</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    {PYTHON_SCRIPT_TEMPLATES.map((template) => (
+                      <button
+                        key={template.label}
+                        onClick={() => {
+                          setPythonScript(template.script)
+                          persistNodeData({ pythonScript: template.script })
+                        }}
+                        style={{ background: '#17191e', border: '1px solid #333842', color: '#e2e8f0', borderRadius: 6, padding: '8px 10px', fontSize: 11, cursor: 'pointer', textAlign: 'left' }}
+                      >
+                        {template.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Python script</div>
                   <textarea
                     value={pythonScript}
@@ -2354,7 +2989,14 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                 </div>
 
                 <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.5 }}>
-                  Escaping JSON protects script input integrity and helps prevent malformed payloads. Recommended: <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ jsonescape $.raw_data.output }}'}</span>
+                  Use step outputs in scripts with <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ $.step_name.output_field }}'}</span>. For multiline data, wrap with triple quotes. Use <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'print(...)'}</span> to expose values in <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>$.your_python_step.stdout</span> downstream.
+                </div>
+
+                <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.6 }}>
+                  <strong style={{ color: '#e2e8f0' }}>Workflow tips</strong><br />
+                  • Replace JSON <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>null</span> with Python <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>None</span> by parsing with <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>json.loads()</span>.<br />
+                  • Suppress trailing newline with <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'print(value, end="")'}</span> when needed.<br />
+                  • For file output steps, downstream access supports <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ file $.step_name.api_object.url }}'}</span>.
                 </div>
               </>
             ) : (
