@@ -37,6 +37,34 @@ export interface WorkflowReviewRequest {
   status: 'pending' | 'completed'
 }
 
+export interface WorkflowNotifications {
+  emails: string[]
+  webhooks: Array<{
+    url: string
+    headers?: Record<string, string>
+  }>
+}
+
+export interface WorkflowFailureEvent {
+  id: string
+  workspaceName: string
+  workflowId: string
+  workflowName: string
+  triggeringEntity: string
+  failureTimestamp: string
+  failedStep: string
+}
+
+export interface NotificationDelivery {
+  id: string
+  workflowId: string
+  workflowName: string
+  channel: 'email' | 'webhook'
+  target: string
+  sentAt: string
+  payload: WorkflowFailureEvent
+}
+
 export interface WorkflowItem {
   id: string
   name: string
@@ -55,6 +83,7 @@ export interface WorkflowItem {
   activeExecutions: number
   executionsLast7d: number
   reviewRequest?: WorkflowReviewRequest
+  notifications: WorkflowNotifications
 }
 
 export interface WorkflowVersion {
@@ -74,6 +103,8 @@ interface WorkflowStore {
   edges: Edge[]
   selectedNode: Node | null
   workflows: WorkflowItem[]
+  failureEvents: WorkflowFailureEvent[]
+  notificationDeliveries: NotificationDelivery[]
   currentWorkflowId: string | null
   currentUserRole: UserRole
   onNodesChange: OnNodesChange
@@ -101,7 +132,14 @@ interface WorkflowStore {
   unpublishWorkflow: (id: string) => void
   setWorkflowTriggerEnabled: (id: string, enabled: boolean) => void
   runWorkflowExecution: (id: string) => void
+  registerWorkflowFailure: (payload: {
+    workflowId: string
+    failedStep: string
+    triggeringEntity?: string
+    source?: 'manual' | 'automatic'
+  }) => string | null
   stopWorkflowExecutions: (id: string) => void
+  updateWorkflowNotifications: (id: string, notifications: WorkflowNotifications) => void
   openWorkflowInCanvas: (id: string) => void
   renameWorkflowVersion: (workflowId: string, versionId: string, name: string) => void
   restoreWorkflowVersion: (workflowId: string, versionId: string) => void
@@ -156,6 +194,8 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   edges: [],
   selectedNode: null,
   workflows: [],
+  failureEvents: [],
+  notificationDeliveries: [],
   currentWorkflowId: null,
   currentUserRole: 'creator',
 
@@ -197,6 +237,10 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       ],
       activeExecutions: 0,
       executionsLast7d: 0,
+      notifications: {
+        emails: [],
+        webhooks: [],
+      },
     }
     set({
       workflows: [draft, ...get().workflows],
@@ -416,6 +460,71 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     })
   },
 
+  registerWorkflowFailure: ({
+    workflowId,
+    failedStep,
+    triggeringEntity = 'System Event',
+    source = 'automatic',
+  }) => {
+    const workflow = get().workflows.find((item) => item.id === workflowId)
+    if (!workflow) return null
+
+    const failureEvent: WorkflowFailureEvent = {
+      id: `evt-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+      workspaceName: 'My Workspace',
+      workflowId,
+      workflowName: workflow.name,
+      triggeringEntity,
+      failureTimestamp: new Date().toISOString(),
+      failedStep,
+    }
+
+    const shouldNotify =
+      source !== 'manual' &&
+      (workflow.status === 'published_enabled' ||
+        workflow.status === 'published_disabled' ||
+        workflow.status === 'has_unpublished_changes')
+
+    const deliveries: NotificationDelivery[] = shouldNotify
+      ? [
+          ...workflow.notifications.emails.map((email) => ({
+            id: `nd-${Date.now()}-${Math.floor(Math.random() * 10000)}-email`,
+            workflowId,
+            workflowName: workflow.name,
+            channel: 'email' as const,
+            target: email,
+            sentAt: new Date().toISOString(),
+            payload: failureEvent,
+          })),
+          ...workflow.notifications.webhooks.map((webhook) => ({
+            id: `nd-${Date.now()}-${Math.floor(Math.random() * 10000)}-webhook`,
+            workflowId,
+            workflowName: workflow.name,
+            channel: 'webhook' as const,
+            target: webhook.url,
+            sentAt: new Date().toISOString(),
+            payload: failureEvent,
+          })),
+        ]
+      : []
+
+    set({
+      workflows: get().workflows.map((item) =>
+        item.id === workflowId
+          ? {
+              ...item,
+              activeExecutions: Math.max(0, item.activeExecutions - 1),
+              updatedAt: new Date().toISOString(),
+            }
+          : item,
+      ),
+      failureEvents: [failureEvent, ...get().failureEvents],
+      notificationDeliveries: [...deliveries, ...get().notificationDeliveries],
+    })
+
+    return failureEvent.id
+  },
+
   stopWorkflowExecutions: (id) => {
     set({
       workflows: get().workflows.map((workflow) =>
@@ -423,6 +532,20 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
           ? {
               ...workflow,
               activeExecutions: 0,
+              updatedAt: new Date().toISOString(),
+            }
+          : workflow,
+      ),
+    })
+  },
+
+  updateWorkflowNotifications: (id, notifications) => {
+    set({
+      workflows: get().workflows.map((workflow) =>
+        workflow.id === id
+          ? {
+              ...workflow,
+              notifications,
               updatedAt: new Date().toISOString(),
             }
           : workflow,
@@ -534,6 +657,10 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       ],
       activeExecutions: 0,
       executionsLast7d: 0,
+      notifications: {
+        emails: [],
+        webhooks: [],
+      },
     }
 
     set({ workflows: [newWorkflow, ...get().workflows] })
@@ -598,6 +725,10 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       ],
       activeExecutions: 0,
       executionsLast7d: 0,
+      notifications: {
+        emails: [],
+        webhooks: [],
+      },
     })
 
     if (!conflict) {

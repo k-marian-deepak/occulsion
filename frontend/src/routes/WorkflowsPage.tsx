@@ -7,6 +7,12 @@ import '@xyflow/react/dist/style.css'
 import { nodeTypes } from '@/components/canvas/WorkflowCanvas'
 import type { WorkflowConflictMode } from '@/lib/workflowYaml'
 
+const ORG_EMAIL_OPTIONS = [
+  'soc-oncall@company.com',
+  'secops@company.com',
+  'alerts@company.com',
+]
+
 function getWorkflowStatusLabel(status: string) {
   if (status === 'published_enabled') return 'Published, trigger enabled'
   if (status === 'published_disabled') return 'Published, trigger disabled'
@@ -41,6 +47,13 @@ export function WorkflowsPage() {
   const [pendingImportYaml, setPendingImportYaml] = useState('')
   const [importModalOpen, setImportModalOpen] = useState(false)
   const [importMode, setImportMode] = useState<WorkflowConflictMode>('keep_original')
+  const [notificationsOpenFor, setNotificationsOpenFor] = useState<string | null>(null)
+  const [emailsDraft, setEmailsDraft] = useState<string[]>([])
+  const [selectedOrgEmail, setSelectedOrgEmail] = useState('')
+  const [externalEmailInput, setExternalEmailInput] = useState('')
+  const [webhooksDraft, setWebhooksDraft] = useState<Array<{ url: string; headersText: string }>>([])
+  const [webhookInput, setWebhookInput] = useState('')
+  const [webhookHeadersInput, setWebhookHeadersInput] = useState('{\n  "Authorization": "Bearer <token>"\n}')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const {
@@ -52,8 +65,86 @@ export function WorkflowsPage() {
     exportWorkflowYaml,
     importWorkflowYaml,
     stopWorkflowExecutions,
+    registerWorkflowFailure,
     currentUserRole,
+    updateWorkflowNotifications,
+    failureEvents,
+    notificationDeliveries,
   } = useWorkflowStore()
+
+  const openNotificationsModal = (workflowId: string) => {
+    const workflow = workflows.find((item) => item.id === workflowId)
+    if (!workflow) return
+    setNotificationsOpenFor(workflowId)
+    setEmailsDraft(workflow.notifications.emails)
+    setWebhooksDraft(
+      workflow.notifications.webhooks.map((item) => ({
+        url: item.url,
+        headersText: JSON.stringify(item.headers || {}, null, 2),
+      })),
+    )
+    setSelectedOrgEmail('')
+    setExternalEmailInput('')
+    setWebhookInput('')
+    setWebhookHeadersInput('{\n  "Authorization": "Bearer <token>"\n}')
+    setRowMenuWorkflowId(null)
+  }
+
+  const parseHeaders = (text: string) => {
+    const trimmed = text.trim()
+    if (!trimmed) return undefined
+    try {
+      const parsed = JSON.parse(trimmed)
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return undefined
+      }
+
+      const normalized: Record<string, string> = {}
+      for (const [key, value] of Object.entries(parsed)) {
+        normalized[key] = String(value)
+      }
+      return normalized
+    } catch {
+      return undefined
+    }
+  }
+
+  const saveNotifications = () => {
+    if (!notificationsOpenFor) return
+    updateWorkflowNotifications(notificationsOpenFor, {
+      emails: emailsDraft,
+      webhooks: webhooksDraft.map((item) => ({
+        url: item.url,
+        headers: parseHeaders(item.headersText),
+      })),
+    })
+    setNotificationsOpenFor(null)
+  }
+
+  const addExternalEmail = () => {
+    const value = externalEmailInput.trim()
+    if (!value) return
+    if (emailsDraft.includes(value)) return
+    setEmailsDraft((prev) => [...prev, value])
+    setExternalEmailInput('')
+  }
+
+  const addOrgEmail = () => {
+    const value = selectedOrgEmail.trim()
+    if (!value) return
+    if (emailsDraft.includes(value)) return
+    setEmailsDraft((prev) => [...prev, value])
+    setSelectedOrgEmail('')
+  }
+
+  const addWebhook = () => {
+    const value = webhookInput.trim()
+    if (!value) return
+    if (webhooksDraft.some((item) => item.url === value)) return
+    setWebhooksDraft((prev) => [...prev, { url: value, headersText: webhookHeadersInput }])
+    setWebhookInput('')
+    setWebhookHeadersInput('{\n  "Authorization": "Bearer <token>"\n}')
+  }
 
   const downloadYaml = (filename: string, content: string) => {
     const blob = new Blob([content], { type: 'application/x-yaml;charset=utf-8;' })
@@ -301,6 +392,12 @@ export function WorkflowsPage() {
                           <i className="fa-solid fa-arrow-up-from-bracket" style={{ marginRight: 8 }} /> Export published
                         </button>
                         <button
+                          onClick={() => openNotificationsModal(workflow.id)}
+                          style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '10px 12px', cursor: 'pointer' }}
+                        >
+                          <i className="fa-regular fa-bell" style={{ marginRight: 8 }} /> Manage notifications
+                        </button>
+                        <button
                           onClick={() => {
                             stopWorkflowExecutions(workflow.id)
                             setRowMenuWorkflowId(null)
@@ -309,6 +406,20 @@ export function WorkflowsPage() {
                           disabled={workflow.activeExecutions === 0}
                         >
                           <i className="fa-solid fa-hand" style={{ marginRight: 8 }} /> Stop executions
+                        </button>
+                        <button
+                          onClick={() => {
+                            registerWorkflowFailure({
+                              workflowId: workflow.id,
+                              failedStep: 'Alert enrichment step',
+                              triggeringEntity: 'Workflow trigger',
+                              source: 'automatic',
+                            })
+                            setRowMenuWorkflowId(null)
+                          }}
+                          style={{ width: '100%', background: 'transparent', border: 'none', color: '#fca5a5', textAlign: 'left', padding: '10px 12px', cursor: 'pointer' }}
+                        >
+                          <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: 8 }} /> Simulate failure
                         </button>
                       </div>
                     )}
@@ -359,6 +470,132 @@ export function WorkflowsPage() {
             <div style={{ borderTop: '1px solid #333842', padding: '14px 20px', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               <button className="btn btn-ghost" onClick={() => setImportModalOpen(false)}>Cancel</button>
               <button className="btn btn-primary" onClick={confirmImport}>Import</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {notificationsOpenFor && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 120, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: 640, background: '#05070c', border: '1px solid #1f2937', borderRadius: 12, boxShadow: '0 24px 80px rgba(0,0,0,0.6)', overflow: 'hidden' }}>
+            <div style={{ padding: '18px 20px', borderBottom: '1px solid #1f2937', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ color: '#fff', fontSize: 36, fontWeight: 700 }}>Manage notifications</div>
+              <button onClick={() => setNotificationsOpenFor(null)} style={{ background: 'none', border: 'none', color: '#e2e8f0', cursor: 'pointer' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ padding: 20 }}>
+              <p style={{ color: '#d1d5db', fontSize: 14, lineHeight: 1.6, marginBottom: 18 }}>
+                Notifications are sent on failed executions, except for manual runs from the designer.
+              </p>
+
+              <div style={{ marginBottom: 18 }}>
+                <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Emails</div>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <select
+                    value={selectedOrgEmail}
+                    onChange={(e) => setSelectedOrgEmail(e.target.value)}
+                    style={{ width: 240, background: '#111827', border: '1px solid #374151', borderRadius: 8, padding: '10px 12px', color: '#e2e8f0', fontSize: 14, outline: 'none' }}
+                  >
+                    <option value="">Select org email</option>
+                    {ORG_EMAIL_OPTIONS.map((email) => (
+                      <option key={email} value={email}>{email}</option>
+                    ))}
+                  </select>
+                  <button onClick={addOrgEmail} style={{ background: 'transparent', border: 'none', color: '#9ca3af', cursor: 'pointer', fontSize: 14 }}>
+                    <i className="fa-regular fa-circle-plus" style={{ marginRight: 6 }} /> Add
+                  </button>
+                </div>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 10 }}>
+                  <input
+                    value={externalEmailInput}
+                    onChange={(e) => setExternalEmailInput(e.target.value)}
+                    placeholder="Enter external email"
+                    style={{ flex: 1, background: '#111827', border: '1px solid #374151', borderRadius: 8, padding: '10px 12px', color: '#e2e8f0', fontSize: 14, outline: 'none' }}
+                  />
+                  <button onClick={addExternalEmail} style={{ background: 'transparent', border: 'none', color: '#9ca3af', cursor: 'pointer', fontSize: 14 }}>
+                    <i className="fa-regular fa-circle-plus" style={{ marginRight: 6 }} /> Add
+                  </button>
+                </div>
+                {emailsDraft.length > 0 && (
+                  <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    {emailsDraft.map((email) => (
+                      <span key={email} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#111827', border: '1px solid #374151', borderRadius: 999, padding: '5px 10px', color: '#e5e7eb', fontSize: 12 }}>
+                        {email}
+                        <button onClick={() => setEmailsDraft((prev) => prev.filter((item) => item !== email))} style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer' }}>
+                          <X size={12} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Webhooks</div>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <input
+                    value={webhookInput}
+                    onChange={(e) => setWebhookInput(e.target.value)}
+                    placeholder="Enter webhook url"
+                    style={{ flex: 1, background: '#111827', border: '1px solid #374151', borderRadius: 8, padding: '10px 12px', color: '#e2e8f0', fontSize: 14, outline: 'none' }}
+                  />
+                  <button onClick={addWebhook} style={{ background: 'transparent', border: 'none', color: '#9ca3af', cursor: 'pointer', fontSize: 14 }}>
+                    <i className="fa-regular fa-circle-plus" style={{ marginRight: 6 }} /> Add
+                  </button>
+                </div>
+                <textarea
+                  value={webhookHeadersInput}
+                  onChange={(e) => setWebhookHeadersInput(e.target.value)}
+                  placeholder="Optional auth headers JSON"
+                  style={{ width: '100%', marginTop: 10, background: '#111827', border: '1px solid #374151', borderRadius: 8, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', minHeight: 72, fontFamily: 'monospace' }}
+                />
+                {webhooksDraft.length > 0 && (
+                  <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {webhooksDraft.map((hook) => (
+                      <div key={hook.url} style={{ display: 'flex', flexDirection: 'column', gap: 6, background: '#111827', border: '1px solid #374151', borderRadius: 8, padding: '8px 10px', color: '#e5e7eb', fontSize: 12 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{hook.url}</span>
+                          <button onClick={() => setWebhooksDraft((prev) => prev.filter((item) => item.url !== hook.url))} style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer' }}>
+                            <X size={12} />
+                          </button>
+                        </div>
+                        {hook.headersText.trim() && (
+                          <pre style={{ margin: 0, color: '#93c5fd', fontSize: 11, whiteSpace: 'pre-wrap' }}>{hook.headersText}</pre>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ marginTop: 14, borderTop: '1px solid #1f2937', paddingTop: 12 }}>
+                <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
+                  Monitor failures using System Events trigger
+                </div>
+                <div style={{ color: '#9ca3af', fontSize: 12, marginBottom: 8 }}>
+                  Recent workspace workflow failures ({failureEvents.length})
+                </div>
+                <div style={{ maxHeight: 110, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {failureEvents.slice(0, 4).map((eventItem) => (
+                    <div key={eventItem.id} style={{ background: '#111827', border: '1px solid #374151', borderRadius: 8, padding: '7px 10px', color: '#e5e7eb', fontSize: 12 }}>
+                      {eventItem.workflowName} • {eventItem.failedStep} • {new Date(eventItem.failureTimestamp).toLocaleString()}
+                    </div>
+                  ))}
+                  {failureEvents.length === 0 && (
+                    <div style={{ color: '#6b7280', fontSize: 12 }}>No failure events yet.</div>
+                  )}
+                </div>
+                <div style={{ color: '#9ca3af', fontSize: 12, marginTop: 8 }}>
+                  Notification deliveries logged: {notificationDeliveries.length}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ borderTop: '1px solid #1f2937', padding: '14px 20px', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button className="btn btn-ghost" onClick={() => setNotificationsOpenFor(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={saveNotifications}>Save</button>
             </div>
           </div>
         </div>
