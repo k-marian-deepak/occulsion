@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { Search, Plus, GitBranch, Download, X, Sparkles, Trash2, ChevronDown } from 'lucide-react'
+import { Search, Plus, GitBranch, Download, X, Sparkles, Trash2, ChevronDown, ChevronRight } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import { ReactFlow, Background } from '@xyflow/react'
@@ -54,6 +54,10 @@ export function WorkflowsPage() {
   const [webhooksDraft, setWebhooksDraft] = useState<Array<{ url: string; headersText: string }>>([])
   const [webhookInput, setWebhookInput] = useState('')
   const [webhookHeadersInput, setWebhookHeadersInput] = useState('{\n  "Authorization": "Bearer <token>"\n}')
+  const [selectedWorkflowIds, setSelectedWorkflowIds] = useState<string[]>([])
+  const [sectionModalOpen, setSectionModalOpen] = useState(false)
+  const [sectionDraft, setSectionDraft] = useState('')
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({})
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const {
@@ -68,6 +72,7 @@ export function WorkflowsPage() {
     registerWorkflowFailure,
     currentUserRole,
     updateWorkflowNotifications,
+    updateWorkflowSection,
     failureEvents,
     notificationDeliveries,
   } = useWorkflowStore()
@@ -207,6 +212,41 @@ export function WorkflowsPage() {
       return workflow.name.toLowerCase().includes(q) || tags.includes(q)
     })
 
+  const sectionOptions = Array.from(
+    new Set(workflows.map((workflow) => workflow.section?.trim() || 'Ungrouped')),
+  ).sort((a, b) => a.localeCompare(b))
+
+  const groupedFiltered = filtered.reduce<Record<string, typeof filtered>>((acc, workflow) => {
+    const sectionName = workflow.section?.trim() || 'Ungrouped'
+    if (!acc[sectionName]) {
+      acc[sectionName] = []
+    }
+    acc[sectionName].push(workflow)
+    return acc
+  }, {})
+
+  const groupedSectionEntries = Object.entries(groupedFiltered).sort(([left], [right]) =>
+    left.localeCompare(right),
+  )
+
+  const selectedCount = selectedWorkflowIds.length
+
+  const toggleWorkflowSelection = (workflowId: string) => {
+    setSelectedWorkflowIds((prev) =>
+      prev.includes(workflowId)
+        ? prev.filter((item) => item !== workflowId)
+        : [...prev, workflowId],
+    )
+  }
+
+  const applySectionSelection = () => {
+    if (!sectionDraft.trim() || selectedWorkflowIds.length === 0) return
+    updateWorkflowSection(selectedWorkflowIds, sectionDraft)
+    setSelectedWorkflowIds([])
+    setSectionModalOpen(false)
+    setSectionDraft('')
+  }
+
   const tabCounts = {
     all: workflows.length,
     published: workflows.filter((workflow) => ['published_enabled', 'published_disabled', 'has_unpublished_changes', 'under_review'].includes(workflow.status)).length,
@@ -281,6 +321,26 @@ export function WorkflowsPage() {
         </div>
       </div>
 
+      {selectedCount > 0 && (
+        <div style={{ position: 'fixed', left: '50%', bottom: 24, transform: 'translateX(-50%)', zIndex: 70, background: 'rgba(31,34,41,0.95)', border: '1px solid #3b4454', borderRadius: 12, padding: '10px 14px', boxShadow: '0 20px 50px rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ color: '#e2e8f0', fontSize: 13 }}>
+            Workflows selected <span style={{ marginLeft: 6, fontFamily: 'monospace', opacity: 0.8 }}>{selectedCount}</span>
+          </div>
+          <button
+            className="btn btn-ghost"
+            onClick={() => {
+              setSectionDraft('')
+              setSectionModalOpen(true)
+            }}
+          >
+            <i className="fa-regular fa-rectangle-list" style={{ marginRight: 6 }} /> Add to section
+          </button>
+          <button className="btn btn-ghost" onClick={() => setSelectedWorkflowIds([])}>
+            Clear
+          </button>
+        </div>
+      )}
+
       {filtered.length === 0 ? (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 340, gap: 14 }}>
           <div style={{ width: 52, height: 52, borderRadius: 14, background: 'var(--aglow)', border: '1px solid var(--accent-border)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -298,136 +358,226 @@ export function WorkflowsPage() {
         </div>
       ) : (
         <div style={{ display: 'grid', gap: 10 }}>
-          {filtered.map((workflow) => {
-            const statusTheme = getWorkflowStatusColors(workflow.status)
+          {groupedSectionEntries.map(([sectionName, sectionWorkflows]) => {
+            const isCollapsed = collapsedSections[sectionName] === true
             return (
-              <div key={workflow.id} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14 }}>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{workflow.name}</div>
-                    <span style={{ background: statusTheme.bg, color: statusTheme.color, border: `1px solid ${statusTheme.border}`, borderRadius: 999, padding: '3px 8px', fontSize: 11, fontWeight: 600 }}>
-                      {getWorkflowStatusLabel(workflow.status)}
+              <div key={sectionName} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px' }}>
+                <button
+                  onClick={() =>
+                    setCollapsedSections((prev) => ({
+                      ...prev,
+                      [sectionName]: !prev[sectionName],
+                    }))
+                  }
+                  style={{ width: '100%', background: 'transparent', border: 'none', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '2px 2px 8px 2px', color: '#e2e8f0', cursor: 'pointer' }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {isCollapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+                    <span style={{ fontSize: 22, lineHeight: 1.2, fontWeight: 500 }}>{sectionName}</span>
+                    <span style={{ fontSize: 11, fontFamily: 'monospace', background: '#6b7280', color: '#e5e7eb', borderRadius: 999, padding: '2px 7px' }}>
+                      {sectionWorkflows.length}
                     </span>
                   </div>
-                  <div style={{ fontSize: 12, color: 'var(--text2)' }}>
-                    Updated {new Date(workflow.updatedAt).toLocaleString()} • {workflow.nodes.length} nodes • Active: {workflow.activeExecutions} • Last 7d: {workflow.executionsLast7d}
+                </button>
+
+                {!isCollapsed && (
+                  <div style={{ display: 'grid', gap: 10 }}>
+                    {sectionWorkflows.map((workflow) => {
+                      const statusTheme = getWorkflowStatusColors(workflow.status)
+                      const checked = selectedWorkflowIds.includes(workflow.id)
+                      return (
+                        <div key={workflow.id} style={{ background: 'var(--bg3)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14 }}>
+                          <div style={{ minWidth: 0, display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleWorkflowSelection(workflow.id)}
+                              style={{ marginTop: 4, cursor: 'pointer' }}
+                            />
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+                                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{workflow.name}</div>
+                                <span style={{ background: statusTheme.bg, color: statusTheme.color, border: `1px solid ${statusTheme.border}`, borderRadius: 999, padding: '3px 8px', fontSize: 11, fontWeight: 600 }}>
+                                  {getWorkflowStatusLabel(workflow.status)}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: 12, color: 'var(--text2)' }}>
+                                Updated {new Date(workflow.updatedAt).toLocaleString()} • {workflow.nodes.length} nodes • Active: {workflow.activeExecutions} • Last 7d: {workflow.executionsLast7d}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                            <button
+                              className="btn btn-ghost"
+                              onClick={() => {
+                                openWorkflowInCanvas(workflow.id)
+                                navigate('/canvas')
+                              }}
+                            >
+                              Open
+                            </button>
+
+                            {(workflow.status === 'not_published' || workflow.status === 'has_unpublished_changes') && currentUserRole !== 'creator' && (
+                              <button
+                                className="btn btn-primary"
+                                onClick={() => {
+                                  openWorkflowInCanvas(workflow.id)
+                                  publishCurrentWorkflow()
+                                }}
+                              >
+                                Publish
+                              </button>
+                            )}
+
+                            {workflow.status === 'under_review' && currentUserRole !== 'creator' && (
+                              <button
+                                className="btn btn-primary"
+                                onClick={() => {
+                                  openWorkflowInCanvas(workflow.id)
+                                  publishCurrentWorkflow()
+                                }}
+                              >
+                                Approve & Publish
+                              </button>
+                            )}
+
+                            {workflow.status === 'published_enabled' && (
+                              <button className="btn btn-ghost" onClick={() => setWorkflowTriggerEnabled(workflow.id, false)}>
+                                Disable trigger
+                              </button>
+                            )}
+
+                            {workflow.status === 'published_disabled' && (
+                              <button className="btn btn-ghost" onClick={() => setWorkflowTriggerEnabled(workflow.id, true)}>
+                                Enable trigger
+                              </button>
+                            )}
+
+                            {workflow.status !== 'not_published' && (
+                              <button className="btn btn-ghost" onClick={() => unpublishWorkflow(workflow.id)}>
+                                Unpublish
+                              </button>
+                            )}
+
+                            <div style={{ position: 'relative' }}>
+                              <button className="btn btn-ghost" onClick={() => setRowMenuWorkflowId((prev) => (prev === workflow.id ? null : workflow.id))}>
+                                <i className="fa-solid fa-ellipsis" />
+                              </button>
+                              {rowMenuWorkflowId === workflow.id && (
+                                <div style={{ position: 'absolute', top: 36, right: 0, background: '#1c1e23', border: '1px solid #333842', borderRadius: 8, width: 210, zIndex: 40, boxShadow: '0 16px 40px rgba(0,0,0,0.5)' }}>
+                                  <button
+                                    onClick={() => {
+                                      handleExport(workflow.id, false)
+                                      setRowMenuWorkflowId(null)
+                                    }}
+                                    style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '10px 12px', cursor: 'pointer' }}
+                                  >
+                                    <i className="fa-solid fa-arrow-up-from-bracket" style={{ marginRight: 8 }} /> Export workflow
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      handleExport(workflow.id, true)
+                                      setRowMenuWorkflowId(null)
+                                    }}
+                                    style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '10px 12px', cursor: 'pointer' }}
+                                  >
+                                    <i className="fa-solid fa-arrow-up-from-bracket" style={{ marginRight: 8 }} /> Export published
+                                  </button>
+                                  <button
+                                    onClick={() => openNotificationsModal(workflow.id)}
+                                    style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '10px 12px', cursor: 'pointer' }}
+                                  >
+                                    <i className="fa-regular fa-bell" style={{ marginRight: 8 }} /> Manage notifications
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      stopWorkflowExecutions(workflow.id)
+                                      setRowMenuWorkflowId(null)
+                                    }}
+                                    style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '10px 12px', cursor: workflow.activeExecutions > 0 ? 'pointer' : 'not-allowed', opacity: workflow.activeExecutions > 0 ? 1 : 0.5 }}
+                                    disabled={workflow.activeExecutions === 0}
+                                  >
+                                    <i className="fa-solid fa-hand" style={{ marginRight: 8 }} /> Stop executions
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      registerWorkflowFailure({
+                                        workflowId: workflow.id,
+                                        failedStep: 'Alert enrichment step',
+                                        triggeringEntity: 'Workflow trigger',
+                                        source: 'automatic',
+                                      })
+                                      setRowMenuWorkflowId(null)
+                                    }}
+                                    style={{ width: '100%', background: 'transparent', border: 'none', color: '#fca5a5', textAlign: 'left', padding: '10px 12px', cursor: 'pointer' }}
+                                  >
+                                    <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: 8 }} /> Simulate failure
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
-                </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                  <button
-                    className="btn btn-ghost"
-                    onClick={() => {
-                      openWorkflowInCanvas(workflow.id)
-                      navigate('/canvas')
-                    }}
-                  >
-                    Open
-                  </button>
-
-                  {(workflow.status === 'not_published' || workflow.status === 'has_unpublished_changes') && currentUserRole !== 'creator' && (
-                    <button
-                      className="btn btn-primary"
-                      onClick={() => {
-                        openWorkflowInCanvas(workflow.id)
-                        publishCurrentWorkflow()
-                      }}
-                    >
-                      Publish
-                    </button>
-                  )}
-
-                  {workflow.status === 'under_review' && currentUserRole !== 'creator' && (
-                    <button
-                      className="btn btn-primary"
-                      onClick={() => {
-                        openWorkflowInCanvas(workflow.id)
-                        publishCurrentWorkflow()
-                      }}
-                    >
-                      Approve & Publish
-                    </button>
-                  )}
-
-                  {workflow.status === 'published_enabled' && (
-                    <button className="btn btn-ghost" onClick={() => setWorkflowTriggerEnabled(workflow.id, false)}>
-                      Disable trigger
-                    </button>
-                  )}
-
-                  {workflow.status === 'published_disabled' && (
-                    <button className="btn btn-ghost" onClick={() => setWorkflowTriggerEnabled(workflow.id, true)}>
-                      Enable trigger
-                    </button>
-                  )}
-
-                  {workflow.status !== 'not_published' && (
-                    <button className="btn btn-ghost" onClick={() => unpublishWorkflow(workflow.id)}>
-                      Unpublish
-                    </button>
-                  )}
-
-                  <div style={{ position: 'relative' }}>
-                    <button className="btn btn-ghost" onClick={() => setRowMenuWorkflowId((prev) => (prev === workflow.id ? null : workflow.id))}>
-                      <i className="fa-solid fa-ellipsis" />
-                    </button>
-                    {rowMenuWorkflowId === workflow.id && (
-                      <div style={{ position: 'absolute', top: 36, right: 0, background: '#1c1e23', border: '1px solid #333842', borderRadius: 8, width: 210, zIndex: 40, boxShadow: '0 16px 40px rgba(0,0,0,0.5)' }}>
-                        <button
-                          onClick={() => {
-                            handleExport(workflow.id, false)
-                            setRowMenuWorkflowId(null)
-                          }}
-                          style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '10px 12px', cursor: 'pointer' }}
-                        >
-                          <i className="fa-solid fa-arrow-up-from-bracket" style={{ marginRight: 8 }} /> Export workflow
-                        </button>
-                        <button
-                          onClick={() => {
-                            handleExport(workflow.id, true)
-                            setRowMenuWorkflowId(null)
-                          }}
-                          style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '10px 12px', cursor: 'pointer' }}
-                        >
-                          <i className="fa-solid fa-arrow-up-from-bracket" style={{ marginRight: 8 }} /> Export published
-                        </button>
-                        <button
-                          onClick={() => openNotificationsModal(workflow.id)}
-                          style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '10px 12px', cursor: 'pointer' }}
-                        >
-                          <i className="fa-regular fa-bell" style={{ marginRight: 8 }} /> Manage notifications
-                        </button>
-                        <button
-                          onClick={() => {
-                            stopWorkflowExecutions(workflow.id)
-                            setRowMenuWorkflowId(null)
-                          }}
-                          style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '10px 12px', cursor: workflow.activeExecutions > 0 ? 'pointer' : 'not-allowed', opacity: workflow.activeExecutions > 0 ? 1 : 0.5 }}
-                          disabled={workflow.activeExecutions === 0}
-                        >
-                          <i className="fa-solid fa-hand" style={{ marginRight: 8 }} /> Stop executions
-                        </button>
-                        <button
-                          onClick={() => {
-                            registerWorkflowFailure({
-                              workflowId: workflow.id,
-                              failedStep: 'Alert enrichment step',
-                              triggeringEntity: 'Workflow trigger',
-                              source: 'automatic',
-                            })
-                            setRowMenuWorkflowId(null)
-                          }}
-                          style={{ width: '100%', background: 'transparent', border: 'none', color: '#fca5a5', textAlign: 'left', padding: '10px 12px', cursor: 'pointer' }}
-                        >
-                          <i className="fa-solid fa-triangle-exclamation" style={{ marginRight: 8 }} /> Simulate failure
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
+                )}
               </div>
             )
           })}
+        </div>
+      )}
+
+      {sectionModalOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 90, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: 530, background: '#05070c', border: '1px solid #1f2937', borderRadius: 12, boxShadow: '0 24px 80px rgba(0,0,0,0.6)', overflow: 'hidden' }}>
+            <div style={{ padding: '18px 20px', borderBottom: '1px solid #1f2937', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ color: '#fff', fontSize: 38, fontWeight: 700 }}>Move to section</div>
+              <button
+                onClick={() => {
+                  setSectionModalOpen(false)
+                  setSectionDraft('')
+                }}
+                style={{ background: 'none', border: 'none', color: '#e2e8f0', cursor: 'pointer' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ padding: 20 }}>
+              <div style={{ color: '#d1d5db', fontSize: 13, marginBottom: 10 }}>
+                Choose an existing section or type a new one.
+              </div>
+              <input
+                value={sectionDraft}
+                onChange={(event) => setSectionDraft(event.target.value)}
+                list="workflow-sections"
+                placeholder="Search or create section"
+                style={{ width: '100%', background: '#111827', border: '1px solid #374151', borderRadius: 8, padding: '10px 12px', color: '#e2e8f0', fontSize: 14, outline: 'none' }}
+              />
+              <datalist id="workflow-sections">
+                {sectionOptions.map((sectionName) => (
+                  <option key={sectionName} value={sectionName} />
+                ))}
+              </datalist>
+            </div>
+
+            <div style={{ borderTop: '1px solid #1f2937', padding: '14px 20px', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button
+                className="btn btn-ghost"
+                onClick={() => {
+                  setSectionModalOpen(false)
+                  setSectionDraft('')
+                }}
+              >
+                Cancel
+              </button>
+              <button className="btn btn-primary" onClick={applySectionSelection} disabled={!sectionDraft.trim()}>
+                Move
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

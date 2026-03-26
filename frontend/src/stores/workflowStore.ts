@@ -132,6 +132,7 @@ interface WorkflowStore {
   unpublishWorkflow: (id: string) => void
   setWorkflowTriggerEnabled: (id: string, enabled: boolean) => void
   updateWorkflowTags: (id: string, tags: string[]) => void
+  updateWorkflowSection: (workflowIds: string[], section: string) => void
   runWorkflowExecution: (id: string) => void
   registerWorkflowFailure: (payload: {
     workflowId: string
@@ -453,6 +454,21 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
           ? {
               ...workflow,
               tags,
+              updatedAt: new Date().toISOString(),
+            }
+          : workflow,
+      ),
+    })
+  },
+
+  updateWorkflowSection: (workflowIds, section) => {
+    const sectionName = section.trim() || 'Ungrouped'
+    set({
+      workflows: get().workflows.map((workflow) =>
+        workflowIds.includes(workflow.id)
+          ? {
+              ...workflow,
+              section: sectionName,
               updatedAt: new Date().toISOString(),
             }
           : workflow,
