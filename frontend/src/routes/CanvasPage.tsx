@@ -2899,8 +2899,13 @@ function renderJqPreview(expression: string) {
     return '["alice","bob","carol"]'
   }
 
-  return 'Preview is available for built-in examples. Insert an example above to evaluate output.'
+  return PREVIEW_BUILT_IN_FALLBACK
 }
+
+const PREVIEW_BUILT_IN_FALLBACK = [
+  'Preview is available for built-in examples.',
+  'Insert an example above to evaluate output.',
+].join(' ')
 
 const DEFAULT_PYTHON_SCRIPT = [
   'import json',
@@ -3288,7 +3293,7 @@ function renderAdvancedTemplatePreview(template: string, urlSource: string) {
     return applyUrlQueryEncoding(urlSource)
   }
 
-  return 'Preview is available for built-in examples. Insert an example above to evaluate output.'
+  return PREVIEW_BUILT_IN_FALLBACK
 }
 
 function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => void }) {
