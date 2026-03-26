@@ -255,8 +255,9 @@ export function CasesPage() {
 
       {/* ── Slide-over Case Details Panel ────────────────────────────────────── */}
       <div style={{
-        position: 'fixed', top: 0, right: 0, bottom: 0, width: selectedCase ? (isExpanded ? '100vw' : 600) : 0, 
-        background: '#0e1015', borderLeft: '1px solid #2a2e35', zIndex: 1000, // ensures it covers the sidebar
+        position: 'fixed', top: 0, right: 0, bottom: 0, left: selectedCase && isExpanded ? 68 : 'auto',
+        width: selectedCase ? (isExpanded ? 'calc(100vw - 68px)' : 600) : 0,
+        background: '#0e1015', borderLeft: '1px solid #2a2e35', zIndex: 1000,
         transition: 'width 0.3s cubic-bezier(0.16, 1, 0.3, 1)', overflow: 'hidden',
         boxShadow: selectedCase ? '-20px 0 50px rgba(0,0,0,0.5)' : 'none',
         display: 'flex'
