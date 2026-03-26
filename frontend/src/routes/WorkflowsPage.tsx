@@ -1,16 +1,121 @@
 import { useNavigate } from 'react-router-dom'
 import { Search, Plus, GitBranch, Download, X, Sparkles, Trash2, ChevronDown } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useRef, useState } from 'react'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import { ReactFlow, Background } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { nodeTypes } from '@/components/canvas/WorkflowCanvas'
+import type { WorkflowConflictMode } from '@/lib/workflowYaml'
+
+function getWorkflowStatusLabel(status: string) {
+  if (status === 'published_enabled') return 'Published, trigger enabled'
+  if (status === 'published_disabled') return 'Published, trigger disabled'
+  if (status === 'has_unpublished_changes') return 'Has unpublished changes'
+  return 'Not published'
+}
+
+function getWorkflowStatusColors(status: string) {
+  if (status === 'published_enabled') {
+    return { bg: 'rgba(16,185,129,0.12)', color: '#34d399', border: 'rgba(16,185,129,0.28)' }
+  }
+  if (status === 'published_disabled') {
+    return { bg: 'rgba(245,158,11,0.12)', color: '#fbbf24', border: 'rgba(245,158,11,0.3)' }
+  }
+  if (status === 'has_unpublished_changes') {
+    return { bg: 'rgba(59,130,246,0.12)', color: '#60a5fa', border: 'rgba(59,130,246,0.28)' }
+  }
+  return { bg: 'rgba(148,163,184,0.12)', color: '#cbd5e1', border: 'rgba(148,163,184,0.25)' }
+}
+
 export function WorkflowsPage() {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [tab, setTab] = useState('all')
-  const [cat, setCat] = useState('all')
   const [showAIModal, setShowAIModal] = useState(false)
+  const [createMenuOpen, setCreateMenuOpen] = useState(false)
+  const [rowMenuWorkflowId, setRowMenuWorkflowId] = useState<string | null>(null)
+  const [pendingImportYaml, setPendingImportYaml] = useState('')
+  const [importModalOpen, setImportModalOpen] = useState(false)
+  const [importMode, setImportMode] = useState<WorkflowConflictMode>('keep_original')
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const {
+    workflows,
+    openWorkflowInCanvas,
+    unpublishWorkflow,
+    setWorkflowTriggerEnabled,
+    publishCurrentWorkflow,
+    exportWorkflowYaml,
+    importWorkflowYaml,
+  } = useWorkflowStore()
+
+  const downloadYaml = (filename: string, content: string) => {
+    const blob = new Blob([content], { type: 'application/x-yaml;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleExport = (workflowId: string, publishedOnly: boolean) => {
+    const content = exportWorkflowYaml(workflowId, { publishedOnly })
+    if (!content) return
+    const workflow = workflows.find((item) => item.id === workflowId)
+    const safeName = (workflow?.name || 'workflow').replace(/[^a-zA-Z0-9-_]+/g, '-').toLowerCase()
+    const suffix = publishedOnly ? '-published' : ''
+    downloadYaml(`${safeName}${suffix}.yaml`, content)
+  }
+
+  const handleImportFileSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+    const text = await file.text()
+    setPendingImportYaml(text)
+    setImportModalOpen(true)
+    event.target.value = ''
+  }
+
+  const confirmImport = () => {
+    if (!pendingImportYaml) return
+    try {
+      importWorkflowYaml(pendingImportYaml, importMode)
+      setPendingImportYaml('')
+      setImportModalOpen(false)
+      setCreateMenuOpen(false)
+    } catch {
+      setImportModalOpen(false)
+      setPendingImportYaml('')
+    }
+  }
+
+  const filtered = workflows
+    .filter((workflow) => {
+      if (tab === 'published') {
+        return ['published_enabled', 'published_disabled', 'has_unpublished_changes'].includes(workflow.status)
+      }
+      if (tab === 'testing') {
+        return ['published_disabled', 'has_unpublished_changes'].includes(workflow.status)
+      }
+      if (tab === 'drafts') {
+        return workflow.status === 'not_published'
+      }
+      return true
+    })
+    .filter((workflow) => {
+      if (!search.trim()) return true
+      const q = search.toLowerCase()
+      const tags = workflow.tags.join(' ').toLowerCase()
+      return workflow.name.toLowerCase().includes(q) || tags.includes(q)
+    })
+
+  const tabCounts = {
+    all: workflows.length,
+    published: workflows.filter((workflow) => ['published_enabled', 'published_disabled', 'has_unpublished_changes'].includes(workflow.status)).length,
+    testing: workflows.filter((workflow) => ['published_disabled', 'has_unpublished_changes'].includes(workflow.status)).length,
+    drafts: workflows.filter((workflow) => workflow.status === 'not_published').length,
+  }
 
   return (
     <div className="animate-fade-in" style={{ position: 'relative' }}>
@@ -20,24 +125,33 @@ export function WorkflowsPage() {
           <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--text)' }}>Workflows</h1>
           <p style={{ fontSize: 13, color: 'var(--text2)', marginTop: 2 }}>Build, version-control, and automate your SOC playbooks</p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn btn-ghost"><Download size={13} /> Import</button>
-          <button className="btn btn-primary" style={{ background: 'var(--bg3)', color: 'var(--text)', border: '1px solid var(--border)' }} onClick={() => navigate('/canvas')}>
-            <Plus size={13} /> New blank workflow
+        <div style={{ display: 'flex', gap: 8, position: 'relative' }}>
+          <button className="btn btn-primary" onClick={() => setCreateMenuOpen((prev) => !prev)} style={{ background: '#e5e7eb', color: '#000', border: 'none' }}>
+            Create <ChevronDown size={13} />
           </button>
-          <button className="btn btn-primary" onClick={() => setShowAIModal(true)} style={{ background: '#7b40f0', color: '#fff', border: 'none' }}>
-            <Sparkles size={13} /> Generate with AI
-          </button>
+          {createMenuOpen && (
+            <div style={{ position: 'absolute', top: 42, right: 0, background: '#1c1e23', border: '1px solid #333842', borderRadius: 8, width: 220, zIndex: 30, boxShadow: '0 16px 40px rgba(0,0,0,0.5)' }}>
+              <button onClick={() => { setCreateMenuOpen(false); navigate('/canvas') }} style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '11px 14px', cursor: 'pointer', fontSize: 14 }}>
+                <Plus size={13} style={{ marginRight: 8 }} /> Start from scratch
+              </button>
+              <button onClick={() => { setCreateMenuOpen(false); setShowAIModal(true) }} style={{ width: '100%', background: 'transparent', border: 'none', color: '#a78bfa', textAlign: 'left', padding: '11px 14px', cursor: 'pointer', fontSize: 14 }}>
+                <Sparkles size={13} style={{ marginRight: 8 }} /> Generate with AI
+              </button>
+              <button onClick={() => fileInputRef.current?.click()} style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '11px 14px', cursor: 'pointer', fontSize: 14 }}>
+                <Download size={13} style={{ marginRight: 8 }} /> Import workflow
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Tab bar */}
       <div style={{ display: 'flex', gap: 2, marginBottom: 16, background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 8, padding: 4, width: 'fit-content' }}>
         {[
-          { v: 'all', l: 'All', count: 0 },
-          { v: 'published', l: 'Published', count: 0 },
-          { v: 'testing', l: 'Testing', count: 0 },
-          { v: 'drafts', l: 'Drafts', count: 0 },
+          { v: 'all', l: 'All', count: tabCounts.all },
+          { v: 'published', l: 'Published', count: tabCounts.published },
+          { v: 'testing', l: 'Testing', count: tabCounts.testing },
+          { v: 'drafts', l: 'Drafts', count: tabCounts.drafts },
         ].map(t => (
           <button
             key={t.v}
@@ -68,39 +182,159 @@ export function WorkflowsPage() {
           />
           {search && <button onClick={() => setSearch('')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)' }}><X size={11} /></button>}
         </div>
-        {['All types', 'Phishing', 'Identity', 'Malware', 'Cloud'].map(c => (
-          <button
-            key={c}
-            onClick={() => setCat(c === 'All types' ? 'all' : c)}
-            style={{
-              padding: '5px 12px', borderRadius: 20, fontSize: 11.5, cursor: 'pointer',
-              border: `1px solid ${(c === 'All types' ? 'all' : c) === cat ? 'var(--accent)' : 'var(--border)'}`,
-              background: (c === 'All types' ? 'all' : c) === cat ? 'var(--aglow)' : 'var(--bg3)',
-              color: (c === 'All types' ? 'all' : c) === cat ? 'var(--accent2)' : 'var(--text2)',
-            }}
-          >
-            {c}
-          </button>
-        ))}
       </div>
 
-      {/* Empty state */}
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 340, gap: 14 }}>
-        <div style={{ width: 52, height: 52, borderRadius: 14, background: 'var(--aglow)', border: '1px solid var(--accent-border)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <GitBranch size={22} color="var(--accent2)" />
-        </div>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>No workflows yet</div>
-          <div style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.6, maxWidth: 320 }}>
-            Create your first workflow to start automating SOC playbooks, alert triage, and response actions.
+      {filtered.length === 0 ? (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 340, gap: 14 }}>
+          <div style={{ width: 52, height: 52, borderRadius: 14, background: 'var(--aglow)', border: '1px solid var(--accent-border)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <GitBranch size={22} color="var(--accent2)" />
           </div>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', marginBottom: 6 }}>No workflows yet</div>
+            <div style={{ fontSize: 13, color: 'var(--text2)', lineHeight: 1.6, maxWidth: 320 }}>
+              Create your first workflow to start automating SOC playbooks, alert triage, and response actions.
+            </div>
+          </div>
+          <button className="btn btn-primary" onClick={() => setShowAIModal(true)} style={{ background: '#7b40f0', border: 'none' }}>
+            <Sparkles size={13} /> Generate with AI
+          </button>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowAIModal(true)} style={{ background: '#7b40f0', border: 'none' }}>
-          <Sparkles size={13} /> Generate with AI
-        </button>
-      </div>
+      ) : (
+        <div style={{ display: 'grid', gap: 10 }}>
+          {filtered.map((workflow) => {
+            const statusTheme = getWorkflowStatusColors(workflow.status)
+            return (
+              <div key={workflow.id} style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)' }}>{workflow.name}</div>
+                    <span style={{ background: statusTheme.bg, color: statusTheme.color, border: `1px solid ${statusTheme.border}`, borderRadius: 999, padding: '3px 8px', fontSize: 11, fontWeight: 600 }}>
+                      {getWorkflowStatusLabel(workflow.status)}
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text2)' }}>
+                    Updated {new Date(workflow.updatedAt).toLocaleString()} • {workflow.nodes.length} nodes
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  <button
+                    className="btn btn-ghost"
+                    onClick={() => {
+                      openWorkflowInCanvas(workflow.id)
+                      navigate('/canvas')
+                    }}
+                  >
+                    Open
+                  </button>
+
+                  {(workflow.status === 'not_published' || workflow.status === 'has_unpublished_changes') && (
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => {
+                        openWorkflowInCanvas(workflow.id)
+                        publishCurrentWorkflow()
+                      }}
+                    >
+                      Publish
+                    </button>
+                  )}
+
+                  {workflow.status === 'published_enabled' && (
+                    <button className="btn btn-ghost" onClick={() => setWorkflowTriggerEnabled(workflow.id, false)}>
+                      Disable trigger
+                    </button>
+                  )}
+
+                  {workflow.status === 'published_disabled' && (
+                    <button className="btn btn-ghost" onClick={() => setWorkflowTriggerEnabled(workflow.id, true)}>
+                      Enable trigger
+                    </button>
+                  )}
+
+                  {workflow.status !== 'not_published' && (
+                    <button className="btn btn-ghost" onClick={() => unpublishWorkflow(workflow.id)}>
+                      Unpublish
+                    </button>
+                  )}
+
+                  <div style={{ position: 'relative' }}>
+                    <button className="btn btn-ghost" onClick={() => setRowMenuWorkflowId((prev) => (prev === workflow.id ? null : workflow.id))}>
+                      <i className="fa-solid fa-ellipsis" />
+                    </button>
+                    {rowMenuWorkflowId === workflow.id && (
+                      <div style={{ position: 'absolute', top: 36, right: 0, background: '#1c1e23', border: '1px solid #333842', borderRadius: 8, width: 210, zIndex: 40, boxShadow: '0 16px 40px rgba(0,0,0,0.5)' }}>
+                        <button
+                          onClick={() => {
+                            handleExport(workflow.id, false)
+                            setRowMenuWorkflowId(null)
+                          }}
+                          style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '10px 12px', cursor: 'pointer' }}
+                        >
+                          <i className="fa-solid fa-arrow-up-from-bracket" style={{ marginRight: 8 }} /> Export workflow
+                        </button>
+                        <button
+                          onClick={() => {
+                            handleExport(workflow.id, true)
+                            setRowMenuWorkflowId(null)
+                          }}
+                          style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '10px 12px', cursor: 'pointer' }}
+                        >
+                          <i className="fa-solid fa-arrow-up-from-bracket" style={{ marginRight: 8 }} /> Export published
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
 
       {showAIModal && <AIModal onClose={() => setShowAIModal(false)} />}
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".yaml,.yml"
+        style={{ display: 'none' }}
+        onChange={handleImportFileSelected}
+      />
+
+      {importModalOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 90, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: 520, background: '#1f2229', border: '1px solid #333842', borderRadius: 10, boxShadow: '0 24px 80px rgba(0,0,0,0.6)' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #333842', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ color: '#fff', fontSize: 16, fontWeight: 600 }}>Import workflow</div>
+              <button onClick={() => setImportModalOpen(false)} style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer' }}>
+                <X size={16} />
+              </button>
+            </div>
+            <div style={{ padding: 20 }}>
+              <div style={{ fontSize: 13, color: '#e2e8f0', marginBottom: 10 }}>Conflict handling mode</div>
+              {[
+                { id: 'keep_original', label: 'Keep original' },
+                { id: 'override_original', label: 'Override original' },
+                { id: 'duplicate', label: 'Duplicate' },
+              ].map((option) => (
+                <label key={option.id} style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#e2e8f0', fontSize: 13, marginBottom: 8, cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    checked={importMode === option.id}
+                    onChange={() => setImportMode(option.id as WorkflowConflictMode)}
+                  />
+                  {option.label}
+                </label>
+              ))}
+            </div>
+            <div style={{ borderTop: '1px solid #333842', padding: '14px 20px', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button className="btn btn-ghost" onClick={() => setImportModalOpen(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={confirmImport}>Import</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

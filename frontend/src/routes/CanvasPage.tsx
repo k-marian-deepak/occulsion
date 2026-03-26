@@ -8,15 +8,81 @@ import { Search, ChevronDown, X, Copy, Trash2, MoreHorizontal, RotateCcw, ArrowR
 import { useCasesStore } from '@/stores/casesStore'
 
 export function CanvasPage() {
-  const { setNodes, setEdges, addNode, selectedNode } = useWorkflowStore()
+  const {
+    setNodes,
+    setEdges,
+    addNode,
+    selectedNode,
+    currentWorkflowId,
+    workflows,
+    saveCurrentWorkflowDraft,
+    publishCurrentWorkflow,
+    exportWorkflowYaml,
+    unpublishWorkflow,
+  } = useWorkflowStore()
   const location = useLocation()
   const navigate = useNavigate()
   const addCase = useCasesStore(s => s.addCase)
   
   const [search, setSearch] = useState('')
   const [editingStep, setEditingStep] = useState<any | null>(null)
+  const [publishOpen, setPublishOpen] = useState(false)
+  const [actionsOpen, setActionsOpen] = useState(false)
+  const [versionDescription, setVersionDescription] = useState('')
+  const [tags, setTags] = useState('')
+  const [timeBackMinutes, setTimeBackMinutes] = useState(20)
+
+  const currentWorkflow = workflows.find((item) => item.id === currentWorkflowId)
+
+  const statusLabel =
+    currentWorkflow?.status === 'published_enabled'
+      ? 'Published, trigger enabled'
+      : currentWorkflow?.status === 'published_disabled'
+      ? 'Published, trigger disabled'
+      : currentWorkflow?.status === 'has_unpublished_changes'
+      ? 'Has unpublished changes'
+      : 'Not published'
+
+  const saveDraft = () => {
+    saveCurrentWorkflowDraft(currentWorkflow?.name || 'Untitled workflow')
+  }
+
+  const downloadYaml = (filename: string, content: string) => {
+    const blob = new Blob([content], { type: 'application/x-yaml;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleExport = (publishedOnly: boolean) => {
+    const workflowId = currentWorkflowId || saveCurrentWorkflowDraft('Untitled workflow')
+    if (!workflowId) return
+    const yaml = exportWorkflowYaml(workflowId, { publishedOnly })
+    if (!yaml) return
+    const name = (currentWorkflow?.name || 'workflow').replace(/[^a-zA-Z0-9-_]+/g, '-').toLowerCase()
+    downloadYaml(`${name}${publishedOnly ? '-published' : ''}.yaml`, yaml)
+    setActionsOpen(false)
+  }
+
+  const confirmPublish = () => {
+    publishCurrentWorkflow({
+      versionDescription,
+      tags: tags
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean),
+      timeBackMinutes,
+    })
+    setPublishOpen(false)
+    setVersionDescription('')
+    setTags('')
+  }
   
   const handleRunWorkflow = () => {
+    saveDraft()
     addCase({
       id: `cw-${Date.now()}`,
       state: 'new',
@@ -224,9 +290,44 @@ export function CanvasPage() {
                 </div>
 
                 <div style={{ position: 'absolute', right: 24, pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ fontSize: 12, color: '#9ca3af', padding: '6px 10px', border: '1px solid #333842', borderRadius: 6, background: '#1c1e23' }}>
+                    {statusLabel}
+                  </div>
+                  <button onClick={saveDraft} style={{ background: 'transparent', color: '#fff', border: '1px solid #4b5563', borderRadius: 6, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                    <i className="fa-regular fa-floppy-disk" style={{ fontSize: 12, marginRight: 6 }} /> Save
+                  </button>
+                  <button onClick={() => setPublishOpen(true)} style={{ background: '#e5e7eb', color: '#000', border: 'none', borderRadius: 6, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                    Publish
+                  </button>
                   <button onClick={handleRunWorkflow} style={{ background: '#7b40f0', color: '#fff', border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, boxShadow: '0 4px 12px rgba(123, 64, 240, 0.3)' }}>
                     <i className="fa-solid fa-play" style={{ fontSize: 12 }} /> Save & Run Workflow
                   </button>
+                  <div style={{ position: 'relative' }}>
+                    <button onClick={() => setActionsOpen((prev) => !prev)} style={{ background: 'transparent', color: '#e2e8f0', border: '1px solid #4b5563', borderRadius: 6, padding: '8px 12px', fontSize: 13, cursor: 'pointer' }}>
+                      <MoreHorizontal size={16} />
+                    </button>
+                    {actionsOpen && (
+                      <div style={{ position: 'absolute', top: 42, right: 0, width: 220, background: '#252830', border: '1px solid #333842', borderRadius: 8, boxShadow: '0 16px 40px rgba(0,0,0,0.5)', zIndex: 30 }}>
+                        <button onClick={() => handleExport(false)} style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '10px 12px', cursor: 'pointer' }}>
+                          <i className="fa-solid fa-arrow-up-from-bracket" style={{ marginRight: 8 }} /> Export workflow
+                        </button>
+                        <button onClick={() => handleExport(true)} style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '10px 12px', cursor: 'pointer' }}>
+                          <i className="fa-solid fa-arrow-up-from-bracket" style={{ marginRight: 8 }} /> Export published
+                        </button>
+                        {currentWorkflow && currentWorkflow.status !== 'not_published' && (
+                          <button
+                            onClick={() => {
+                              unpublishWorkflow(currentWorkflow.id)
+                              setActionsOpen(false)
+                            }}
+                            style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '10px 12px', cursor: 'pointer' }}
+                          >
+                            <i className="fa-solid fa-eye-slash" style={{ marginRight: 8 }} /> Unpublish workflow
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </Panel>
@@ -246,6 +347,63 @@ export function CanvasPage() {
 
       {editingStep && (
         <StepBuilder node={editingStep} onClose={() => setEditingStep(null)} />
+      )}
+
+      {publishOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: 520, background: '#252830', border: '1px solid #333842', borderRadius: 12, boxShadow: '0 20px 60px rgba(0,0,0,0.6)', overflow: 'hidden' }}>
+            <div style={{ padding: '18px 22px', borderBottom: '1px solid #333842', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ color: '#fff', fontSize: 18, fontWeight: 600 }}>Publish workflow</div>
+              <button onClick={() => setPublishOpen(false)} style={{ background: 'none', border: 'none', color: '#e2e8f0', cursor: 'pointer' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ padding: 22, display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Version description</div>
+                <input
+                  value={versionDescription}
+                  onChange={(e) => setVersionDescription(e.target.value)}
+                  placeholder="What changed in this version..."
+                  style={{ width: '100%', background: '#1c1e23', border: '1px solid #4b5563', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', outline: 'none', fontSize: 13 }}
+                />
+              </div>
+
+              <div>
+                <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Tags</div>
+                <input
+                  value={tags}
+                  onChange={(e) => setTags(e.target.value)}
+                  placeholder="phishing, email, triage"
+                  style={{ width: '100%', background: '#1c1e23', border: '1px solid #4b5563', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', outline: 'none', fontSize: 13 }}
+                />
+              </div>
+
+              <div>
+                <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600, marginBottom: 8 }}>TimeBack benchmark ({timeBackMinutes} min)</div>
+                <input
+                  type="range"
+                  min={5}
+                  max={240}
+                  step={5}
+                  value={timeBackMinutes}
+                  onChange={(e) => setTimeBackMinutes(Number(e.target.value))}
+                  style={{ width: '100%' }}
+                />
+              </div>
+            </div>
+
+            <div style={{ borderTop: '1px solid #333842', padding: '14px 22px', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button onClick={() => setPublishOpen(false)} style={{ background: 'transparent', color: '#e2e8f0', border: '1px solid #4b5563', borderRadius: 6, padding: '8px 16px', cursor: 'pointer' }}>
+                Cancel
+              </button>
+              <button onClick={confirmPublish} style={{ background: '#e5e7eb', color: '#000', border: 'none', borderRadius: 6, padding: '8px 16px', fontWeight: 600, cursor: 'pointer' }}>
+                Publish
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
