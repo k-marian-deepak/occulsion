@@ -68,6 +68,8 @@ const TRIGGER_TYPE_OPTIONS = [
 ] as const
 
 const TRIGGER_CONDITION_OPERATORS = ['Equals', 'Contains'] as const
+const SCHEDULE_INTERVAL_UNITS = ['Minute', 'Hour', 'Day', 'Week'] as const
+const SCHEDULE_TIMEZONES = ['UTC', 'Europe/Madrid', 'CET', 'America/New_York', 'Asia/Kolkata'] as const
 
 const TRIGGER_EVENT_LOG_SAMPLE = [
   {
@@ -185,6 +187,19 @@ function buildTriggerUrls(baseHookUrl: string, workflowId: string) {
     async: asyncUrl,
     sync: syncUrl,
   }
+}
+
+function triggerNodeLabelForType(
+  triggerType: (typeof TRIGGER_TYPE_OPTIONS)[number]['id'],
+  integrationName?: string,
+) {
+  if (triggerType === 'integration') return integrationName || 'Integration'
+  if (triggerType === 'schedule') return 'Scheduled Event'
+  if (triggerType === 'on-demand') return 'On-demand'
+  if (triggerType === 'system-events') return 'System Events'
+  if (triggerType === 'torq-cases') return 'Torq Cases'
+  if (triggerType === 'torq-interact') return 'Torq Interact'
+  return 'On-demand'
 }
 
 function formatEventLogTimestamp(timestamp: number) {
@@ -2432,6 +2447,16 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const [triggerIntegrationName, setTriggerIntegrationName] = useState(String(node.data?.triggerIntegrationName || availableTriggerIntegrations[0] || 'Okta'))
   const [triggerIntegrationInstance, setTriggerIntegrationInstance] = useState(String(node.data?.triggerIntegrationInstance || `${String(node.data?.triggerIntegrationName || availableTriggerIntegrations[0] || 'Okta').replace(/\s+/g, '_')}_Demo`))
   const [triggerAcceptRawHttp, setTriggerAcceptRawHttp] = useState(Boolean(node.data?.triggerAcceptRawHttp))
+  const [scheduleIntervalValue, setScheduleIntervalValue] = useState(String(node.data?.scheduleIntervalValue || '1'))
+  const [scheduleIntervalUnit, setScheduleIntervalUnit] = useState<(typeof SCHEDULE_INTERVAL_UNITS)[number]>(String(node.data?.scheduleIntervalUnit || 'Hour') as (typeof SCHEDULE_INTERVAL_UNITS)[number])
+  const [scheduleRunTime, setScheduleRunTime] = useState(String(node.data?.scheduleRunTime || '09:00'))
+  const [scheduleTimezone, setScheduleTimezone] = useState<(typeof SCHEDULE_TIMEZONES)[number]>(String(node.data?.scheduleTimezone || 'UTC') as (typeof SCHEDULE_TIMEZONES)[number])
+  const [scheduleAnchorTimestamp, setScheduleAnchorTimestamp] = useState<number>(Number(node.data?.scheduleAnchorTimestamp || Date.now()))
+  const [scheduleUseNestedGuard, setScheduleUseNestedGuard] = useState(Boolean(node.data?.scheduleUseNestedGuard))
+  const [scheduleWorkingDays, setScheduleWorkingDays] = useState(String(node.data?.scheduleWorkingDays || 'Monday, Tuesday, Wednesday, Thursday, Friday'))
+  const [scheduleWorkingHours, setScheduleWorkingHours] = useState(String(node.data?.scheduleWorkingHours || '08,09,10,11,12,13,14,15,16,17,18'))
+  const [scheduleGuardTimezone, setScheduleGuardTimezone] = useState(String(node.data?.scheduleGuardTimezone || 'CET'))
+  const [scheduleNestedWorkflowName, setScheduleNestedWorkflowName] = useState(String(node.data?.scheduleNestedWorkflowName || 'Should I run now working hour in workdays'))
   const [triggeredFrom, setTriggeredFrom] = useState<'anywhere' | 'nested-only'>(String(node.data?.triggeredFrom || 'anywhere') as 'anywhere' | 'nested-only')
   const [triggerExposeInCases, setTriggerExposeInCases] = useState(Boolean(node.data?.triggerExposeInCases))
   const [triggerConditionJoin, setTriggerConditionJoin] = useState<'AND' | 'OR'>(String(node.data?.triggerConditionJoin || 'AND') as 'AND' | 'OR')
@@ -2573,6 +2598,16 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
       matches: conditionsResult,
     }
   })
+  const scheduleIntervalMultiplier =
+    scheduleIntervalUnit === 'Minute'
+      ? 60 * 1000
+      : scheduleIntervalUnit === 'Hour'
+      ? 60 * 60 * 1000
+      : scheduleIntervalUnit === 'Day'
+      ? 24 * 60 * 60 * 1000
+      : 7 * 24 * 60 * 60 * 1000
+  const scheduleIntervalMs = Math.max(Number(scheduleIntervalValue || '1'), 1) * scheduleIntervalMultiplier
+  const nextScheduledExecution = new Date(scheduleAnchorTimestamp + scheduleIntervalMs)
   const mockOutputHasTemplate = /\{\{[\s\S]*\}\}/.test(mockOutputText)
   const mockOutputTooLarge = new Blob([mockOutputText]).size > 100 * 1024
   const slackBlocksJsonValid = (() => {
@@ -2777,6 +2812,16 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
     setTriggerIntegrationName(String(node.data?.triggerIntegrationName || availableTriggerIntegrations[0] || 'Okta'))
     setTriggerIntegrationInstance(String(node.data?.triggerIntegrationInstance || `${String(node.data?.triggerIntegrationName || availableTriggerIntegrations[0] || 'Okta').replace(/\s+/g, '_')}_Demo`))
     setTriggerAcceptRawHttp(Boolean(node.data?.triggerAcceptRawHttp))
+    setScheduleIntervalValue(String(node.data?.scheduleIntervalValue || '1'))
+    setScheduleIntervalUnit(String(node.data?.scheduleIntervalUnit || 'Hour') as (typeof SCHEDULE_INTERVAL_UNITS)[number])
+    setScheduleRunTime(String(node.data?.scheduleRunTime || '09:00'))
+    setScheduleTimezone(String(node.data?.scheduleTimezone || 'UTC') as (typeof SCHEDULE_TIMEZONES)[number])
+    setScheduleAnchorTimestamp(Number(node.data?.scheduleAnchorTimestamp || Date.now()))
+    setScheduleUseNestedGuard(Boolean(node.data?.scheduleUseNestedGuard))
+    setScheduleWorkingDays(String(node.data?.scheduleWorkingDays || 'Monday, Tuesday, Wednesday, Thursday, Friday'))
+    setScheduleWorkingHours(String(node.data?.scheduleWorkingHours || '08,09,10,11,12,13,14,15,16,17,18'))
+    setScheduleGuardTimezone(String(node.data?.scheduleGuardTimezone || 'CET'))
+    setScheduleNestedWorkflowName(String(node.data?.scheduleNestedWorkflowName || 'Should I run now working hour in workdays'))
     setTriggeredFrom(String(node.data?.triggeredFrom || 'anywhere') as 'anywhere' | 'nested-only')
     setTriggerExposeInCases(Boolean(node.data?.triggerExposeInCases))
     setTriggerConditionJoin(String(node.data?.triggerConditionJoin || 'AND') as 'AND' | 'OR')
@@ -3154,11 +3199,11 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                           const currentIndex = TRIGGER_TYPE_OPTIONS.findIndex((option) => option.id === triggerType)
                           const nextOption = TRIGGER_TYPE_OPTIONS[(currentIndex + 1) % TRIGGER_TYPE_OPTIONS.length]
                           setTriggerType(nextOption.id)
-                          if (nextOption.id === 'integration') {
-                            persistNodeData({ triggerType: nextOption.id, label: triggerIntegrationName, subtext: 'Integration' })
-                          } else {
-                            persistNodeData({ triggerType: nextOption.id, label: nextOption.label.replace(' trigger', ''), subtext: '' })
-                          }
+                          persistNodeData({
+                            triggerType: nextOption.id,
+                            label: triggerNodeLabelForType(nextOption.id, triggerIntegrationName),
+                            subtext: nextOption.id === 'integration' ? 'Integration' : '',
+                          })
                         }}
                         style={{ background: '#17191e', border: '1px solid #333842', color: '#e2e8f0', borderRadius: 6, padding: '6px 10px', fontSize: 11, cursor: 'pointer' }}
                       >
@@ -3172,11 +3217,11 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                           key={option.id}
                           onClick={() => {
                             setTriggerType(option.id)
-                            if (option.id === 'integration') {
-                              persistNodeData({ triggerType: option.id, label: triggerIntegrationName, subtext: 'Integration' })
-                            } else {
-                              persistNodeData({ triggerType: option.id, label: option.label.replace(' trigger', ''), subtext: '' })
-                            }
+                            persistNodeData({
+                              triggerType: option.id,
+                              label: triggerNodeLabelForType(option.id, triggerIntegrationName),
+                              subtext: option.id === 'integration' ? 'Integration' : '',
+                            })
                           }}
                           style={{ background: triggerType === option.id ? '#334155' : '#17191e', border: '1px solid #333842', borderRadius: 6, color: '#e2e8f0', padding: '8px 10px', textAlign: 'left', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
                         >
@@ -3383,6 +3428,162 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                             Accept raw HTTP request payload
                           </label>
                         </div>
+                      </>
+                    )}
+
+                    {triggerType === 'schedule' && (
+                      <>
+                        <div style={{ marginBottom: 12, color: '#9ca3af', fontSize: 12, lineHeight: 1.5 }}>
+                          Run workflow on predefined intervals and exact time with timezone support. Trigger event includes a timestamp at runtime.
+                        </div>
+
+                        <div style={{ marginBottom: 14 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Trigger every</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: 8 }}>
+                            <input
+                              value={scheduleIntervalValue}
+                              onChange={(event) => {
+                                const value = event.target.value
+                                setScheduleIntervalValue(value)
+                                persistNodeData({ scheduleIntervalValue: value })
+                              }}
+                              style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                            />
+                            <div style={{ position: 'relative' }}>
+                              <select
+                                value={scheduleIntervalUnit}
+                                onChange={(event) => {
+                                  const value = event.target.value as (typeof SCHEDULE_INTERVAL_UNITS)[number]
+                                  setScheduleIntervalUnit(value)
+                                  persistNodeData({ scheduleIntervalUnit: value })
+                                }}
+                                style={{ width: '100%', appearance: 'none', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                              >
+                                {SCHEDULE_INTERVAL_UNITS.map((unit) => (
+                                  <option key={unit} value={unit}>{unit}</option>
+                                ))}
+                              </select>
+                              <ChevronDown size={14} color="#9ca3af" style={{ position: 'absolute', right: 12, top: 12, pointerEvents: 'none' }} />
+                            </div>
+                          </div>
+                        </div>
+
+                        <div style={{ marginBottom: 14 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Run time</div>
+                          <input
+                            type="time"
+                            value={scheduleRunTime}
+                            onChange={(event) => {
+                              const value = event.target.value
+                              setScheduleRunTime(value)
+                              persistNodeData({ scheduleRunTime: value })
+                            }}
+                            style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                          />
+                        </div>
+
+                        <div style={{ marginBottom: 14 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Timezone</div>
+                          <div style={{ position: 'relative' }}>
+                            <select
+                              value={scheduleTimezone}
+                              onChange={(event) => {
+                                const value = event.target.value as (typeof SCHEDULE_TIMEZONES)[number]
+                                setScheduleTimezone(value)
+                                persistNodeData({ scheduleTimezone: value })
+                              }}
+                              style={{ width: '100%', appearance: 'none', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                            >
+                              {SCHEDULE_TIMEZONES.map((timezone) => (
+                                <option key={timezone} value={timezone}>{timezone}</option>
+                              ))}
+                            </select>
+                            <ChevronDown size={14} color="#9ca3af" style={{ position: 'absolute', right: 12, top: 12, pointerEvents: 'none' }} />
+                          </div>
+                        </div>
+
+                        <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.6 }}>
+                          <strong style={{ color: '#e2e8f0' }}>Execution point alignment</strong><br />
+                          Next run aligns from the latest create/edit/publish anchor and shifts after each republish.
+                          <br />
+                          <span style={{ color: '#e2e8f0' }}>Next run preview: {nextScheduledExecution.toLocaleString([], { hour: 'numeric', minute: '2-digit', month: 'short', day: 'numeric' })} ({scheduleTimezone})</span>
+                        </div>
+
+                        <div style={{ marginBottom: 12 }}>
+                          <button
+                            onClick={() => {
+                              const anchor = Date.now()
+                              setScheduleAnchorTimestamp(anchor)
+                              persistNodeData({ scheduleAnchorTimestamp: anchor })
+                            }}
+                            style={{ background: '#17191e', border: '1px solid #333842', color: '#e2e8f0', borderRadius: 6, padding: '6px 10px', fontSize: 11, cursor: 'pointer' }}
+                          >
+                            Realign next execution to now
+                          </button>
+                        </div>
+
+                        <div style={{ marginBottom: 12 }}>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#e2e8f0', fontSize: 12, cursor: 'pointer' }}>
+                            <input
+                              type="checkbox"
+                              checked={scheduleUseNestedGuard}
+                              onChange={(event) => {
+                                const next = event.target.checked
+                                setScheduleUseNestedGuard(next)
+                                persistNodeData({ scheduleUseNestedGuard: next })
+                              }}
+                            />
+                            Enable smart scheduling with nested workflow guard
+                          </label>
+                        </div>
+
+                        {scheduleUseNestedGuard && (
+                          <div style={{ marginBottom: 16, border: '1px solid #333842', borderRadius: 8, padding: 10, background: '#17191e' }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Nested workflow guard parameters</div>
+                            <div style={{ display: 'grid', gap: 8 }}>
+                              <input
+                                value={scheduleNestedWorkflowName}
+                                onChange={(event) => {
+                                  const value = event.target.value
+                                  setScheduleNestedWorkflowName(value)
+                                  persistNodeData({ scheduleNestedWorkflowName: value })
+                                }}
+                                placeholder="Should I run now working hour in workdays"
+                                style={{ width: '100%', background: '#0f1115', border: '1px solid #333842', borderRadius: 6, padding: '8px 10px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
+                              />
+                              <input
+                                value={scheduleWorkingDays}
+                                onChange={(event) => {
+                                  const value = event.target.value
+                                  setScheduleWorkingDays(value)
+                                  persistNodeData({ scheduleWorkingDays: value })
+                                }}
+                                placeholder="Monday, Tuesday, Wednesday, Thursday, Friday"
+                                style={{ width: '100%', background: '#0f1115', border: '1px solid #333842', borderRadius: 6, padding: '8px 10px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
+                              />
+                              <input
+                                value={scheduleWorkingHours}
+                                onChange={(event) => {
+                                  const value = event.target.value
+                                  setScheduleWorkingHours(value)
+                                  persistNodeData({ scheduleWorkingHours: value })
+                                }}
+                                placeholder="08,09,10,11,12,13,14,15,16,17,18"
+                                style={{ width: '100%', background: '#0f1115', border: '1px solid #333842', borderRadius: 6, padding: '8px 10px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
+                              />
+                              <input
+                                value={scheduleGuardTimezone}
+                                onChange={(event) => {
+                                  const value = event.target.value
+                                  setScheduleGuardTimezone(value)
+                                  persistNodeData({ scheduleGuardTimezone: value })
+                                }}
+                                placeholder="CET"
+                                style={{ width: '100%', background: '#0f1115', border: '1px solid #333842', borderRadius: 6, padding: '8px 10px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
+                              />
+                            </div>
+                          </div>
+                        )}
                       </>
                     )}
 
