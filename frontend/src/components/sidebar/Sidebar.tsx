@@ -49,7 +49,7 @@ export function Sidebar() {
       overflow: 'visible', zIndex: 100 // ensure it overlaps nicely if needed by layout
     }}>
       {/* ── Top Workspace Dropdown ───────────────────────── */}
-      <div ref={menuRef} style={{ position: 'relative', whiteSpace: 'nowrap', overflow: 'hidden' }}>
+      <div ref={menuRef} style={{ position: 'relative', whiteSpace: 'nowrap', overflow: 'visible', zIndex: 20 }}>
         <div 
           onClick={() => !isCollapsed && setWorkspaceMenuOpen(!workspaceMenuOpen)}
           style={{ 
@@ -84,7 +84,7 @@ export function Sidebar() {
           <div className="animate-fade-in" style={{ 
             position: 'absolute', top: 66, left: 16, 
             width: 'calc(100% - 32px)', background: '#1c1e23', border: '1px solid #333842', 
-            borderRadius: 8, padding: 8, zIndex: 100, display: 'flex', flexDirection: 'column', gap: 2, 
+            borderRadius: 8, padding: 8, zIndex: 200, display: 'flex', flexDirection: 'column', gap: 2, 
             boxShadow: '0 12px 40px rgba(0,0,0,0.6)' 
           }}>
             <div style={{ fontSize: 11, fontWeight: 600, color: '#9ca3af', padding: '8px 12px' }}>Switch Workspace</div>
