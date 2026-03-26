@@ -67,6 +67,152 @@ const TRIGGER_TYPE_OPTIONS = [
   { id: 'torq-interact', label: 'Torq Interact' },
 ] as const
 
+const SYSTEM_EVENT_OPTIONS = [
+  {
+    id: 'actionplan-execution-completed',
+    label: 'Actionplan execution completed',
+    description: "Socrates finished executing the Actionplan generated from a Case's Runbook.",
+    scenarioId: 'SOCRATES_RUNBOOK_EXECUTION_FINISHED',
+  },
+  {
+    id: 'actionplan-execution-initiated',
+    label: 'Actionplan execution initiated',
+    description: "Socrates started executing the Actionplan generated from a Case's Runbook.",
+    scenarioId: 'SOCRATES_RUNBOOK_EXECUTION_STARTED',
+  },
+  {
+    id: 'request-for-review',
+    label: 'Request for review',
+    description: 'Submission for review by a teammate, or used to trigger a CI/CD workflow.',
+    scenarioId: 'WORKFLOW_REVIEW_REQUESTED',
+  },
+  {
+    id: 'runner-status-change',
+    label: 'Runner status change',
+    description: 'The health status of a Runner changed.',
+    scenarioId: 'RUNNER_STATUS_CHANGED',
+  },
+  {
+    id: 'share-request-created',
+    label: 'Share request created',
+    description: 'A request to share a resource was created.',
+    scenarioId: 'SHARE_REQUEST_CREATED',
+  },
+  {
+    id: 'step-failure',
+    label: 'Step failure',
+    description: 'Unsuccessful execution of a specific step.',
+    scenarioId: 'STEP_FAILURE',
+  },
+  {
+    id: 'table-variable-updated',
+    label: 'Table Variable Updated',
+    description: 'A table workspace variable was updated.',
+    scenarioId: 'VARIABLE_UPDATED',
+  },
+  {
+    id: 'workflow-failure',
+    label: 'Workflow failure',
+    description: 'Errors or incomplete execution of a workflow.',
+    scenarioId: 'WORKFLOW_FAILURE',
+  },
+  {
+    id: 'workflow-published',
+    label: 'Workflow published',
+    description: 'A workflow was published.',
+    scenarioId: 'WORKFLOW_PUBLISH',
+  },
+  {
+    id: 'workflow-unpublished',
+    label: 'Workflow unpublished',
+    description: 'A workflow was unpublished.',
+    scenarioId: 'WORKFLOW_UNPUBLISH',
+  },
+] as const
+
+const SYSTEM_EVENT_CONTEXT_FIELDS: Record<(typeof SYSTEM_EVENT_OPTIONS)[number]['id'], Array<{ path: string; description: string }>> = {
+  'actionplan-execution-completed': [
+    { path: '{{ $.event.result }}', description: 'Execution result (SUCCEEDED/FAILED)' },
+    { path: '{{ $.event.runbook_id }}', description: 'Runbook ID' },
+    { path: '{{ $.event.scenario_id }}', description: 'Trigger scenario' },
+    { path: '{{ $.event.triggered_by }}', description: 'Execution initiator type' },
+    { path: '{{ $.event.conversation_id }}', description: 'Socrates conversation ID' },
+    { path: '{{ $.event.case_id }}', description: 'Case ID for the runbook execution' },
+  ],
+  'actionplan-execution-initiated': [
+    { path: '{{ $.event.result }}', description: 'Empty while execution is in process' },
+    { path: '{{ $.event.runbook_id }}', description: 'Runbook ID' },
+    { path: '{{ $.event.scenario_id }}', description: 'Trigger scenario' },
+    { path: '{{ $.event.triggered_by }}', description: 'Execution initiator type' },
+    { path: '{{ $.event.conversation_id }}', description: 'Socrates conversation ID' },
+    { path: '{{ $.event.conversation_url }}', description: 'URL to Socrates conversation' },
+  ],
+  'request-for-review': [
+    { path: '{{ $.event.workflow_name }}', description: 'Workflow name under review' },
+    { path: '{{ $.event.workflow_id }}', description: 'Workflow ID' },
+    { path: '{{ $.event.requested_reviewers }}', description: 'Requested reviewers' },
+    { path: '{{ $.event.triggered_by }}', description: 'User who requested review' },
+    { path: '{{ $.event.tags }}', description: 'Workflow tags' },
+    { path: '{{ $.event.created_at }}', description: 'Review request timestamp' },
+  ],
+  'runner-status-change': [
+    { path: '{{ $.event.name }}', description: 'Runner name' },
+    { path: '{{ $.event.id }}', description: 'Runner ID' },
+    { path: '{{ $.event.status }}', description: 'Runner health status' },
+    { path: '{{ $.event.scenario_id }}', description: 'Trigger scenario' },
+    { path: '{{ $.event.last_seen_time }}', description: 'Latest heartbeat timestamp' },
+    { path: '{{ $.event.display_name }}', description: 'Runner display name' },
+  ],
+  'share-request-created': [
+    { path: '{{ $.event.request_id }}', description: 'Share request ID' },
+    { path: '{{ $.event.resource_name }}', description: 'Shared resource name' },
+    { path: '{{ $.event.resource_type }}', description: 'Shared resource type' },
+    { path: '{{ $.event.created_by }}', description: 'Requester email' },
+    { path: '{{ $.event.state }}', description: 'Share state' },
+    { path: '{{ $.event.destination_workspace_id }}', description: 'Destination workspace ID' },
+  ],
+  'step-failure': [
+    { path: '{{ $.event.workflow_name }}', description: 'Workflow where step failed' },
+    { path: '{{ $.event.step_name }}', description: 'Failed step name' },
+    { path: '{{ $.event.step_type }}', description: 'Step type' },
+    { path: '{{ $.event.execution_pretty_id }}', description: 'Execution human-readable ID' },
+    { path: '{{ $.event.step_status.code }}', description: 'Failure status payload' },
+    { path: '{{ $.event.step_uuid }}', description: 'Stable step UUID' },
+  ],
+  'table-variable-updated': [
+    { path: '{{ $.event.table_name }}', description: 'Table variable name' },
+    { path: '{{ $.event.action }}', description: 'Update action (INSERT/DELETE/UPDATE)' },
+    { path: '{{ $.event.triggered_by }}', description: 'User/workflow that updated the table' },
+    { path: '{{ $.event.data }}', description: 'Previous and new values metadata' },
+    { path: '{{ $.event.timestamp }}', description: 'Update timestamp' },
+    { path: '{{ $.event.scenario_id }}', description: 'Trigger scenario' },
+  ],
+  'workflow-failure': [
+    { path: '{{ $.event.workflow_name }}', description: 'Failed workflow name' },
+    { path: '{{ $.event.workflow_id }}', description: 'Failed workflow ID' },
+    { path: '{{ $.event.status }}', description: 'Workflow failure status code' },
+    { path: '{{ $.event.output }}', description: 'Workflow output payload' },
+    { path: '{{ $.event.revision_id }}', description: 'Executed revision ID' },
+    { path: '{{ $.event.started_at }}', description: 'Failure start timestamp' },
+  ],
+  'workflow-published': [
+    { path: '{{ $.event.workflow_name }}', description: 'Published workflow name' },
+    { path: '{{ $.event.workflow_id }}', description: 'Published workflow ID' },
+    { path: '{{ $.event.revision_id }}', description: 'Published revision ID' },
+    { path: '{{ $.event.tags }}', description: 'Workflow tags' },
+    { path: '{{ $.event.triggered_by }}', description: 'Entity that published workflow' },
+    { path: '{{ $.event.workspace_name }}', description: 'Workspace name' },
+  ],
+  'workflow-unpublished': [
+    { path: '{{ $.event.workflow_name }}', description: 'Unpublished workflow name' },
+    { path: '{{ $.event.workflow_id }}', description: 'Unpublished workflow ID' },
+    { path: '{{ $.event.revision_id }}', description: 'Unpublished revision ID' },
+    { path: '{{ $.event.tags }}', description: 'Workflow tags' },
+    { path: '{{ $.event.triggered_by }}', description: 'Entity that unpublished workflow' },
+    { path: '{{ $.event.workspace_name }}', description: 'Workspace name' },
+  ],
+}
+
 const TRIGGER_CONDITION_OPERATORS = ['Equals', 'Contains'] as const
 const SCHEDULE_INTERVAL_UNITS = ['Minute', 'Hour', 'Day', 'Week'] as const
 const SCHEDULE_TIMEZONES = ['UTC', 'Europe/Madrid', 'CET', 'America/New_York', 'Asia/Kolkata'] as const
@@ -200,6 +346,56 @@ function triggerNodeLabelForType(
   if (triggerType === 'torq-cases') return 'Torq Cases'
   if (triggerType === 'torq-interact') return 'Torq Interact'
   return 'On-demand'
+}
+
+function buildSystemEventPayload(
+  eventType: (typeof SYSTEM_EVENT_OPTIONS)[number]['id'],
+  iteration = 1,
+) {
+  const selected = SYSTEM_EVENT_OPTIONS.find((item) => item.id === eventType) || SYSTEM_EVENT_OPTIONS[0]
+  return {
+    scenario_id: selected.scenarioId,
+    workflow_id: '710c5349-b617-0000-0000-e15671ca4ffb',
+    workflow_name: iteration % 2 === 0 ? 'Investigate suspicious sign-in' : 'Endpoint triage automation',
+    triggered_by: iteration % 2 === 0 ? 'deepak@example.com' : 'automation@torq',
+    created_at: new Date(Date.now() - iteration * 40 * 60 * 1000).toISOString(),
+    status: iteration % 2 === 0 ? 'healthy' : 'unhealthy',
+    result: eventType === 'actionplan-execution-initiated' ? '' : iteration % 2 === 0 ? 'SUCCEEDED' : 'FAILED',
+    request_id: `req-${1000 + iteration}`,
+    resource_name: 'SOC2 Approval Workflow',
+    table_name: 'risk_registry',
+    action: iteration % 2 === 0 ? 'CHANGE_ACTION_UPDATE' : 'CHANGE_ACTION_INSERT',
+    step_name: 'Post status update',
+    step_type: 'CONTAINER',
+    execution_pretty_id: `AB-${150000 + iteration}`,
+    tags: ['security', 'compliance'],
+    conversation_url: 'https://socrates.torq.io/conversations/conv-1229',
+  }
+}
+
+function buildSystemEventLogSample(
+  eventType: (typeof SYSTEM_EVENT_OPTIONS)[number]['id'],
+) {
+  return [
+    {
+      id: 'AA-002105',
+      timestamp: Date.now() - 35 * 60 * 1000,
+      triggeredBy: 'D',
+      event: buildSystemEventPayload(eventType, 1),
+    },
+    {
+      id: 'AA-002103',
+      timestamp: Date.now() - 95 * 60 * 1000,
+      triggeredBy: 'D',
+      event: buildSystemEventPayload(eventType, 2),
+    },
+    {
+      id: 'AA-002097',
+      timestamp: Date.now() - 4 * 60 * 60 * 1000,
+      triggeredBy: 'D',
+      event: buildSystemEventPayload(eventType, 3),
+    },
+  ]
 }
 
 function formatEventLogTimestamp(timestamp: number) {
@@ -2457,6 +2653,8 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const [scheduleWorkingHours, setScheduleWorkingHours] = useState(String(node.data?.scheduleWorkingHours || '08,09,10,11,12,13,14,15,16,17,18'))
   const [scheduleGuardTimezone, setScheduleGuardTimezone] = useState(String(node.data?.scheduleGuardTimezone || 'CET'))
   const [scheduleNestedWorkflowName, setScheduleNestedWorkflowName] = useState(String(node.data?.scheduleNestedWorkflowName || 'Should I run now working hour in workdays'))
+  const [systemEventType, setSystemEventType] = useState<(typeof SYSTEM_EVENT_OPTIONS)[number]['id']>(String(node.data?.systemEventType || 'request-for-review') as (typeof SYSTEM_EVENT_OPTIONS)[number]['id'])
+  const [showSystemEventSelector, setShowSystemEventSelector] = useState(false)
   const [triggeredFrom, setTriggeredFrom] = useState<'anywhere' | 'nested-only'>(String(node.data?.triggeredFrom || 'anywhere') as 'anywhere' | 'nested-only')
   const [triggerExposeInCases, setTriggerExposeInCases] = useState(Boolean(node.data?.triggerExposeInCases))
   const [triggerConditionJoin, setTriggerConditionJoin] = useState<'AND' | 'OR'>(String(node.data?.triggerConditionJoin || 'AND') as 'AND' | 'OR')
@@ -2586,6 +2784,8 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const selectedTriggerInfo = TRIGGER_EXECUTION_TYPES.find((item) => item.id === triggerExecutionType) || TRIGGER_EXECUTION_TYPES[0]
   const selectedCircleCITemplate =
     CIRCLECI_ROTATION_TEMPLATES.find((item) => item.id === circleciTemplateId) || CIRCLECI_ROTATION_TEMPLATES[0]
+  const selectedSystemEvent = SYSTEM_EVENT_OPTIONS.find((item) => item.id === systemEventType) || SYSTEM_EVENT_OPTIONS[0]
+  const selectedSystemEventContext = SYSTEM_EVENT_CONTEXT_FIELDS[selectedSystemEvent.id] || []
   const triggerEventRows = triggerEventLog.slice(0, 30).map((entry) => {
     const conditionsResult = triggerConditions.length === 0
       ? true
@@ -2822,6 +3022,8 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
     setScheduleWorkingHours(String(node.data?.scheduleWorkingHours || '08,09,10,11,12,13,14,15,16,17,18'))
     setScheduleGuardTimezone(String(node.data?.scheduleGuardTimezone || 'CET'))
     setScheduleNestedWorkflowName(String(node.data?.scheduleNestedWorkflowName || 'Should I run now working hour in workdays'))
+    setSystemEventType(String(node.data?.systemEventType || 'request-for-review') as (typeof SYSTEM_EVENT_OPTIONS)[number]['id'])
+    setShowSystemEventSelector(false)
     setTriggeredFrom(String(node.data?.triggeredFrom || 'anywhere') as 'anywhere' | 'nested-only')
     setTriggerExposeInCases(Boolean(node.data?.triggerExposeInCases))
     setTriggerConditionJoin(String(node.data?.triggerConditionJoin || 'AND') as 'AND' | 'OR')
@@ -2894,6 +3096,14 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
     setActiveField(null)
     setPickerOpenFor(null)
   }, [node.id])
+
+  useEffect(() => {
+    if (triggerType !== 'system-events') return
+    if (Array.isArray(node.data?.triggerEventLog) && node.data.triggerEventLog.length > 0) return
+    const initialLog = buildSystemEventLogSample(systemEventType)
+    setTriggerEventLog(initialLog as any)
+    persistNodeData({ triggerEventLog: initialLog })
+  }, [triggerType, systemEventType, node.id])
   
   return (
     <div className="animate-fade-in workflow-editor-properties" style={{
@@ -3198,11 +3408,26 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                         onClick={() => {
                           const currentIndex = TRIGGER_TYPE_OPTIONS.findIndex((option) => option.id === triggerType)
                           const nextOption = TRIGGER_TYPE_OPTIONS[(currentIndex + 1) % TRIGGER_TYPE_OPTIONS.length]
+                          const nextSystemEvent = (String(node.data?.systemEventType || systemEventType || 'request-for-review') as (typeof SYSTEM_EVENT_OPTIONS)[number]['id'])
+                          const nextSystemLog = nextOption.id === 'system-events' ? buildSystemEventLogSample(nextSystemEvent) : undefined
                           setTriggerType(nextOption.id)
+                          setShowSystemEventSelector(false)
+                          if (nextOption.id === 'system-events') {
+                            setSystemEventType(nextSystemEvent)
+                            setTriggerEventLog(nextSystemLog as any)
+                            setExpandedEventLogId(nextSystemLog?.[0]?.id || null)
+                          }
                           persistNodeData({
                             triggerType: nextOption.id,
                             label: triggerNodeLabelForType(nextOption.id, triggerIntegrationName),
                             subtext: nextOption.id === 'integration' ? 'Integration' : '',
+                            ...(nextOption.id === 'system-events'
+                              ? {
+                                  systemEventType: nextSystemEvent,
+                                  triggerEventLog: nextSystemLog,
+                                  expandedEventLogId: nextSystemLog?.[0]?.id || '',
+                                }
+                              : {}),
                           })
                         }}
                         style={{ background: '#17191e', border: '1px solid #333842', color: '#e2e8f0', borderRadius: 6, padding: '6px 10px', fontSize: 11, cursor: 'pointer' }}
@@ -3216,11 +3441,26 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                         <button
                           key={option.id}
                           onClick={() => {
+                            const nextSystemEvent = (String(node.data?.systemEventType || systemEventType || 'request-for-review') as (typeof SYSTEM_EVENT_OPTIONS)[number]['id'])
+                            const nextSystemLog = option.id === 'system-events' ? buildSystemEventLogSample(nextSystemEvent) : undefined
                             setTriggerType(option.id)
+                            setShowSystemEventSelector(false)
+                            if (option.id === 'system-events') {
+                              setSystemEventType(nextSystemEvent)
+                              setTriggerEventLog(nextSystemLog as any)
+                              setExpandedEventLogId(nextSystemLog?.[0]?.id || null)
+                            }
                             persistNodeData({
                               triggerType: option.id,
                               label: triggerNodeLabelForType(option.id, triggerIntegrationName),
                               subtext: option.id === 'integration' ? 'Integration' : '',
+                              ...(option.id === 'system-events'
+                                ? {
+                                    systemEventType: nextSystemEvent,
+                                    triggerEventLog: nextSystemLog,
+                                    expandedEventLogId: nextSystemLog?.[0]?.id || '',
+                                  }
+                                : {}),
                             })
                           }}
                           style={{ background: triggerType === option.id ? '#334155' : '#17191e', border: '1px solid #333842', borderRadius: 6, color: '#e2e8f0', padding: '8px 10px', textAlign: 'left', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
@@ -3229,6 +3469,100 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                         </button>
                       ))}
                     </div>
+
+                    {triggerType === 'system-events' && (
+                      <>
+                        <div style={{ marginBottom: 12, color: '#9ca3af', fontSize: 12, lineHeight: 1.5 }}>
+                          Trigger workflows from internal Torq events. Add conditions to scope events or leave broad for global workspace governance.
+                        </div>
+
+                        <div style={{ marginBottom: 14, border: '1px solid #333842', borderRadius: 8, background: '#17191e', padding: 10 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>Selected trigger event</div>
+                            <button
+                              onClick={() => setShowSystemEventSelector(true)}
+                              style={{ background: '#0f1115', border: '1px solid #333842', color: '#e2e8f0', borderRadius: 6, padding: '4px 8px', fontSize: 11, cursor: 'pointer' }}
+                            >
+                              Replace
+                            </button>
+                          </div>
+                          <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600 }}>{selectedSystemEvent.label}</div>
+                          <div style={{ color: '#9ca3af', fontSize: 11, marginTop: 2 }}>{selectedSystemEvent.description}</div>
+                        </div>
+
+                        <div style={{ marginBottom: 14 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Event context</div>
+                          <div style={{ display: 'grid', gap: 8 }}>
+                            {selectedSystemEventContext.map((item) => (
+                              <div key={item.path} style={{ border: '1px solid #333842', borderRadius: 6, background: '#17191e', padding: '8px 10px' }}>
+                                <div style={{ color: '#e2e8f0', fontSize: 11, fontFamily: 'monospace' }}>{item.path}</div>
+                                <div style={{ color: '#94a3b8', fontSize: 11, marginTop: 3 }}>{item.description}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {showSystemEventSelector && (
+                          <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.6)', zIndex: 70, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+                            <div style={{ width: 'min(1200px, 94vw)', maxHeight: '86vh', overflow: 'auto', background: '#2a2d33', border: '1px solid #3a3f47', borderRadius: 12 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 18px', borderBottom: '1px solid #3a3f47' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                  <button
+                                    onClick={() => setShowSystemEventSelector(false)}
+                                    style={{ background: 'transparent', border: 'none', color: '#e2e8f0', cursor: 'pointer', fontSize: 16 }}
+                                  >
+                                    <ArrowLeft size={16} />
+                                  </button>
+                                  <div style={{ color: '#fff', fontSize: 32, fontWeight: 500 }}>Select trigger</div>
+                                </div>
+                                <button
+                                  onClick={() => setShowSystemEventSelector(false)}
+                                  style={{ background: 'transparent', border: 'none', color: '#e2e8f0', cursor: 'pointer' }}
+                                >
+                                  <X size={20} />
+                                </button>
+                              </div>
+
+                              <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 12 }}>
+                                {SYSTEM_EVENT_OPTIONS.map((option) => (
+                                  <button
+                                    key={option.id}
+                                    onClick={() => {
+                                      const nextLog = buildSystemEventLogSample(option.id)
+                                      setSystemEventType(option.id)
+                                      setShowSystemEventSelector(false)
+                                      setTriggerEventLog(nextLog as any)
+                                      setExpandedEventLogId(nextLog[0]?.id || null)
+                                      persistNodeData({
+                                        systemEventType: option.id,
+                                        triggerEventLog: nextLog,
+                                        expandedEventLogId: nextLog[0]?.id || '',
+                                      })
+                                    }}
+                                    style={{
+                                      border: `1px solid ${systemEventType === option.id ? '#64748b' : '#3a3f47'}`,
+                                      borderRadius: 8,
+                                      background: '#06090f',
+                                      color: '#e2e8f0',
+                                      textAlign: 'left',
+                                      padding: '14px 12px',
+                                      cursor: 'pointer',
+                                      minHeight: 94,
+                                    }}
+                                  >
+                                    <div style={{ fontSize: 20, lineHeight: 1, marginBottom: 8, color: '#f8fafc' }}>
+                                      <i className="fa-regular fa-file-lines" />
+                                    </div>
+                                    <div style={{ fontSize: 15, fontWeight: 500, marginBottom: 6 }}>{option.label}</div>
+                                    <div style={{ fontSize: 11, color: '#94a3b8', lineHeight: 1.45 }}>{option.description}</div>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
 
                     <div style={{ marginBottom: 14 }}>
                       <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Triggered from</div>
