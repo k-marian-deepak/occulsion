@@ -84,6 +84,17 @@ type OperatorTemplate = {
   iconClass: string
 }
 
+type BuilderSectionId = 'operators' | 'ai-agents' | 'integrations' | 'cases' | 'utilities' | 'custom'
+
+const BUILDER_SECTIONS: Array<{ id: BuilderSectionId; label: string; iconClass: string }> = [
+  { id: 'operators', label: 'Operators', iconClass: 'fa-solid fa-code-branch' },
+  { id: 'ai-agents', label: 'AI Agents', iconClass: 'fa-solid fa-robot' },
+  { id: 'integrations', label: 'Integrations', iconClass: 'fa-solid fa-puzzle-piece' },
+  { id: 'cases', label: 'Cases', iconClass: 'fa-regular fa-shield' },
+  { id: 'utilities', label: 'Utilities', iconClass: 'fa-solid fa-wrench' },
+  { id: 'custom', label: 'Custom', iconClass: 'fa-regular fa-pen-to-square' },
+]
+
 const OPERATOR_TEMPLATES: OperatorTemplate[] = [
   {
     id: 'if-else',
@@ -690,6 +701,7 @@ export function CanvasPage() {
   
   const [search, setSearch] = useState('')
   const [operatorSearch, setOperatorSearch] = useState('')
+  const [builderSection, setBuilderSection] = useState<BuilderSectionId>('integrations')
   const [editingStep, setEditingStep] = useState<any | null>(null)
   const [publishOpen, setPublishOpen] = useState(false)
   const [publishMenuOpen, setPublishMenuOpen] = useState(false)
@@ -1193,10 +1205,19 @@ export function CanvasPage() {
     e.dataTransfer.effectAllowed = 'move'
   }
 
-  const visible = DB.filter(a =>
-    a.n.toLowerCase().includes(search.toLowerCase()) ||
-    a.cat.toLowerCase().includes(search.toLowerCase())
-  )
+  const visible = DB.filter((item) => {
+    const q = search.toLowerCase()
+    const matchesSearch =
+      item.n.toLowerCase().includes(q) || item.cat.toLowerCase().includes(q)
+    if (!matchesSearch) return false
+
+    if (builderSection === 'ai-agents') return item.cat === 'AI'
+    if (builderSection === 'utilities') return item.cat === 'Utilities'
+    if (builderSection === 'integrations') return item.cat !== 'AI' && item.cat !== 'Utilities'
+    if (builderSection === 'cases') return /case|soar/i.test(item.cat)
+    if (builderSection === 'custom') return false
+    return false
+  })
   const filteredOperators = OPERATOR_TEMPLATES.filter((item) =>
     item.label.toLowerCase().includes(operatorSearch.toLowerCase()) ||
     item.description.toLowerCase().includes(operatorSearch.toLowerCase()),
@@ -1238,129 +1259,120 @@ export function CanvasPage() {
       }}>
         {viewMode === 'designer' ? (
           <div key="designer" className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-            {/* Search */}
-            <div style={{ padding: '20px 16px 12px', display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 10, background: '#252830',
-                border: '1px solid #333842', borderRadius: 6, padding: '7px 12px', flex: 1,
-              }}>
-                <Search size={14} color="#8891a8" />
-                <input
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                  style={{ background: 'none', border: 'none', outline: 'none', color: '#fff', fontSize: 13, width: '100%', fontFamily: 'inherit' }}
-                  placeholder="Search for an integration"
-                />
-              </div>
-              <button style={{ background: 'none', border: 'none', color: '#8891a8', cursor: 'pointer', padding: 4 }}>
-                <i className="fa-solid fa-arrow-right-to-bracket" style={{ fontSize: 14 }} />
-              </button>
-            </div>
-
-            <div style={{ padding: '0 16px 14px', borderBottom: '1px solid #2a2e35', marginBottom: 14 }}>
-              <div style={{ color: '#e2e8f0', fontSize: 12, fontWeight: 700, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                Operators
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#252830', border: '1px solid #333842', borderRadius: 6, padding: '6px 10px', marginBottom: 8 }}>
-                <i className="fa-solid fa-wand-magic-sparkles" style={{ color: '#9ca3af', fontSize: 11 }} />
-                <input
-                  value={operatorSearch}
-                  onChange={(event) => setOperatorSearch(event.target.value)}
-                  style={{ background: 'none', border: 'none', outline: 'none', color: '#fff', fontSize: 12, width: '100%', fontFamily: 'inherit' }}
-                  placeholder="Search operators"
-                />
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 172, overflowY: 'auto' }}>
-                {filteredOperators.map((operator) => (
-                  <div
-                    key={operator.id}
-                    draggable
-                    onDragStart={(event) => onDragStart(event, { kind: 'operator', ...operator })}
-                    title={operator.description}
+            <div style={{ display: 'flex', flex: 1, minHeight: 0, padding: 12, gap: 10 }}>
+              <div style={{ width: 84, background: '#252830', border: '1px solid #333842', borderRadius: 14, padding: '10px 8px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+                <button style={{ width: 44, height: 44, borderRadius: '50%', border: '1px solid #4b5563', background: '#1c1e23', color: '#e2e8f0', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 6 }}>
+                  <Search size={18} />
+                </button>
+                <div style={{ width: '80%', height: 1, background: '#3a3f47', marginBottom: 8 }} />
+                {BUILDER_SECTIONS.map((section) => (
+                  <button
+                    key={section.id}
+                    onClick={() => {
+                      setBuilderSection(section.id)
+                      setSearch('')
+                    }}
+                    title={section.label}
                     style={{
-                      background: '#0e1015',
-                      border: '1px solid #2a2e35',
-                      borderRadius: 6,
-                      padding: '8px 10px',
+                      width: '100%',
+                      border: 'none',
+                      borderRadius: 10,
+                      background: builderSection === section.id ? '#2f3440' : 'transparent',
+                      color: builderSection === section.id ? '#e2e8f0' : '#9ca3af',
+                      padding: '7px 4px',
+                      cursor: 'pointer',
                       display: 'flex',
+                      flexDirection: 'column',
                       alignItems: 'center',
-                      gap: 10,
-                      cursor: 'grab',
+                      gap: 6,
                     }}
                   >
-                    <div style={{ width: 26, height: 26, borderRadius: 7, background: '#17191e', border: '1px solid #333842', color: '#facc15', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                      <i className={operator.iconClass} style={{ fontSize: 11 }} />
-                    </div>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ color: '#fff', fontSize: 12, fontWeight: 600, marginBottom: 2 }}>{operator.label}</div>
-                      <div style={{ color: '#9ca3af', fontSize: 10, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{operator.description}</div>
-                    </div>
-                  </div>
+                    <i className={section.iconClass} style={{ fontSize: 13 }} />
+                    <span style={{ fontSize: 11, fontWeight: 500, textAlign: 'center', lineHeight: 1.1 }}>{section.label}</span>
+                  </button>
                 ))}
-                {filteredOperators.length === 0 && (
-                  <div style={{ color: '#6b7280', fontSize: 11, padding: '6px 2px' }}>No matching operators</div>
-                )}
               </div>
-            </div>
 
-            {/* Tabs */}
-            <div style={{ display: 'flex', padding: '0 16px', borderBottom: '1px solid #2a2e35', marginBottom: 16, overflowX: 'auto' }}>
-              {[
-                { label: 'Public', count: 59, active: true },
-                { label: 'Cases', count: 0 },
-                { label: 'Utilities', count: 0 },
-                { label: 'Custom', count: 0 },
-              ].map(t => (
-                <div key={t.label} style={{
-                  flexShrink: 0,
-                  padding: '10px 10px', fontSize: 13, fontWeight: t.active ? 600 : 500,
-                  color: t.active ? '#fff' : '#6b7280', display: 'flex', alignItems: 'center', gap: 6,
-                  borderBottom: t.active ? '2px solid #fff' : '2px solid transparent',
-                  cursor: 'pointer',
-                }}>
-                  {t.label} <span style={{ background: t.active ? '#374151' : '#1f2937', padding: '2px 6px', borderRadius: 4, fontSize: 10, color: t.active ? '#fff' : '#9ca3af' }}>{t.count}</span>
-                </div>
-              ))}
-            </div>
-
-            {/* Action List */}
-            <div style={{ flex: 1, overflowY: 'auto', padding: '0 16px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {visible.map((a, i) => (
-                <div
-                  key={i}
-                  draggable
-                  onDragStart={(e) => onDragStart(e, { kind: 'step', ...a })}
-                  style={{
-                    background: '#0e1015', border: '1px solid #2a2e35', borderRadius: 6,
-                    padding: '12px', display: 'flex', alignItems: 'center', gap: 14,
-                    cursor: 'grab', transition: 'border-color .15s',
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.borderColor = '#4b5563'}
-                  onMouseLeave={e => e.currentTarget.style.borderColor = '#2a2e35'}
-                >
-                  {/* White Squircle */}
-                  <div style={{
-                    width: 36, height: 36, background: '#fff', borderRadius: 8,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                    overflow: 'hidden'
-                  }}>
-                    <img src={getIntegrationLogo(a.n)} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }}
-                      onError={(e) => {
-                        e.currentTarget.style.display = 'none';
-                        const nextSibling = e.currentTarget.nextElementSibling as HTMLElement;
-                        if (nextSibling) nextSibling.style.display = 'inline-block';
+              <div style={{ flex: 1, minWidth: 0, background: '#252830', border: '1px solid #333842', borderRadius: 14, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                <div style={{ padding: '14px 14px 10px', borderBottom: '1px solid #333842' }}>
+                  <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 700, marginBottom: 8 }}>
+                    {BUILDER_SECTIONS.find((item) => item.id === builderSection)?.label}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#17191e', border: '1px solid #333842', borderRadius: 8, padding: '7px 10px' }}>
+                    <Search size={13} color="#9ca3af" />
+                    <input
+                      value={builderSection === 'operators' ? operatorSearch : search}
+                      onChange={(event) => {
+                        if (builderSection === 'operators') {
+                          setOperatorSearch(event.target.value)
+                        } else {
+                          setSearch(event.target.value)
+                        }
                       }}
+                      style={{ background: 'none', border: 'none', outline: 'none', color: '#fff', fontSize: 12, width: '100%', fontFamily: 'inherit' }}
+                      placeholder={builderSection === 'operators' ? 'Search operators' : 'Search integrations'}
                     />
-                    <i className={a.fa} style={{ color: a.ic !== '#fff' && a.ic !== 'var(--text)' ? a.ic : '#333', fontSize: 18, display: 'none' }} />
-                  </div>
-
-                  {/* Text */}
-                  <div>
-                    <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 2 }}>{a.cat}</div>
-                    <div style={{ fontSize: 13, fontWeight: 500, color: '#fff', lineHeight: 1.2 }}>{a.n}</div>
                   </div>
                 </div>
-              ))}
+
+                <div style={{ flex: 1, overflowY: 'auto', padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {builderSection === 'operators' ? (
+                    <>
+                      {filteredOperators.map((operator) => (
+                        <div
+                          key={operator.id}
+                          draggable
+                          onDragStart={(event) => onDragStart(event, { kind: 'operator', ...operator })}
+                          title={operator.description}
+                          style={{ background: '#17191e', border: '1px solid #333842', borderRadius: 8, padding: '8px 10px', display: 'flex', alignItems: 'center', gap: 10, cursor: 'grab' }}
+                        >
+                          <div style={{ width: 24, height: 24, borderRadius: 6, background: '#252830', border: '1px solid #3a3f47', color: '#facc15', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <i className={operator.iconClass} style={{ fontSize: 10 }} />
+                          </div>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ color: '#fff', fontSize: 12, fontWeight: 600 }}>{operator.label}</div>
+                            <div style={{ color: '#94a3b8', fontSize: 10, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{operator.description}</div>
+                          </div>
+                        </div>
+                      ))}
+                      {filteredOperators.length === 0 && (
+                        <div style={{ color: '#6b7280', fontSize: 11, padding: '10px 4px' }}>No matching operators</div>
+                      )}
+                    </>
+                  ) : builderSection === 'custom' ? (
+                    <div style={{ color: '#6b7280', fontSize: 11, padding: '10px 4px' }}>No custom blocks yet.</div>
+                  ) : (
+                    <>
+                      {visible.map((a, i) => (
+                        <div
+                          key={i}
+                          draggable
+                          onDragStart={(e) => onDragStart(e, { kind: 'step', ...a })}
+                          style={{ background: '#17191e', border: '1px solid #333842', borderRadius: 8, padding: '8px 10px', display: 'flex', alignItems: 'center', gap: 10, cursor: 'grab' }}
+                        >
+                          <div style={{ width: 26, height: 26, background: '#fff', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden' }}>
+                            <img src={getIntegrationLogo(a.n)} alt="" style={{ width: 14, height: 14, objectFit: 'contain' }}
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none';
+                                const nextSibling = e.currentTarget.nextElementSibling as HTMLElement;
+                                if (nextSibling) nextSibling.style.display = 'inline-block';
+                              }}
+                            />
+                            <i className={a.fa} style={{ color: a.ic !== '#fff' && a.ic !== 'var(--text)' ? a.ic : '#333', fontSize: 12, display: 'none' }} />
+                          </div>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', lineHeight: 1.1 }}>{a.n}</div>
+                            <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 2 }}>{a.cat}</div>
+                          </div>
+                        </div>
+                      ))}
+                      {visible.length === 0 && (
+                        <div style={{ color: '#6b7280', fontSize: 11, padding: '10px 4px' }}>No matching blocks</div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         ) : (
