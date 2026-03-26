@@ -1,17 +1,35 @@
 import { WorkflowCanvas } from '@/components/canvas/WorkflowCanvas'
 import { useWorkflowStore } from '@/stores/workflowStore'
 import { useState, useCallback, useRef, useEffect } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { DB, getIntegrationLogo } from '@/data/integrations'
 import { ReactFlowProvider, useReactFlow, Panel } from '@xyflow/react'
 import { Search, ChevronDown, X, Copy, Trash2, MoreHorizontal, RotateCcw, ArrowRightLeft, Wand2, Settings, Plus, Check, ArrowLeft, Save, RefreshCcw } from 'lucide-react'
+import { useCasesStore } from '@/stores/casesStore'
 
 export function CanvasPage() {
   const { setNodes, setEdges, addNode, selectedNode } = useWorkflowStore()
   const location = useLocation()
+  const navigate = useNavigate()
+  const addCase = useCasesStore(s => s.addCase)
   
   const [search, setSearch] = useState('')
   const [editingStep, setEditingStep] = useState<any | null>(null)
+  
+  const handleRunWorkflow = () => {
+    addCase({
+      id: `cw-${Date.now()}`,
+      state: 'new',
+      number: Math.floor(Math.random() * 800) + 700,
+      category: 'Workflow Automation',
+      title: 'Auto-detected Phishing Event via Trigger - ' + new Date().toLocaleTimeString(),
+      timeText: 'Just now | Workflow',
+      tags: ['Auto-Generated', 'System'],
+      assigneeImg: 'https://api.dicebear.com/7.x/bottts/svg?seed=Robot',
+      severity: 'high'
+    })
+    navigate('/cases')
+  }
   
   const urlMode = new URLSearchParams(location.search).get('mode')
   const [viewMode, setViewMode] = useState<'designer'|'runlog'>(urlMode === 'runlog' ? 'runlog' : 'designer')
@@ -202,6 +220,12 @@ export function CanvasPage() {
                     onClick={() => setViewMode('runlog')}
                     style={{ padding: '6px 20px', background: viewMode === 'runlog' ? '#333842' : 'transparent', border: 'none', borderRadius: 6, color: viewMode === 'runlog' ? '#fff' : '#9ca3af', fontSize: 13, fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s ease' }}>
                     Run Log
+                  </button>
+                </div>
+
+                <div style={{ position: 'absolute', right: 24, pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <button onClick={handleRunWorkflow} style={{ background: '#7b40f0', color: '#fff', border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, boxShadow: '0 4px 12px rgba(123, 64, 240, 0.3)' }}>
+                    <i className="fa-solid fa-play" style={{ fontSize: 12 }} /> Save & Run Workflow
                   </button>
                 </div>
               </div>

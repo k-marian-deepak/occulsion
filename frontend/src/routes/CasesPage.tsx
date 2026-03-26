@@ -2,19 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Search, Filter, ChevronDown, Check, LayoutPanelLeft, Plus, Settings2, RefreshCcw, Sidebar, Clock, Star, Edit2, LayoutDashboard, MoreHorizontal, X } from 'lucide-react'
 
-// --- Types & Mock Data ---
-
-type BoardCase = {
-  id: string
-  state: 'new' | 'in_progress' | 'on_hold' | 'resolved' | 'closed'
-  number: number
-  category: string
-  title: string
-  timeText: string
-  tags: string[]
-  assigneeImg: string
-  severity: 'high' | 'medium' | 'low' | 'critical'
-}
+import { useCasesStore, type BoardCase } from '@/stores/casesStore'
 
 const COLUMNS = [
   { id: 'new', label: 'New', count: 45 },
@@ -22,16 +10,6 @@ const COLUMNS = [
   { id: 'on_hold', label: 'On hold', count: 32 },
   { id: 'resolved', label: 'Resolved', count: 53 },
   { id: 'closed', label: 'Closed', count: 232 }
-]
-
-const MOCK_CASES: BoardCase[] = [
-  { id: 'c1', state: 'new', number: 664, category: 'Identity & Access Man...', title: 'User tried to login from new location with a failed MFA -', timeText: '9h 19m | 2w', tags: ['Malicious IP'], assigneeImg: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Bob', severity: 'high' },
-  { id: 'c2', state: 'new', number: 653, category: 'Email Security', title: 'Phishing Alert: Email to user... Title: "Your package is ready, needs to be released from customs."', timeText: '2d 6h | 2w', tags: ['Malicious I...', '+2'], assigneeImg: 'https://api.dicebear.com/7.x/identicon/svg?seed=12', severity: 'critical' },
-  { id: 'c3', state: 'new', number: 666, category: 'Email Security', title: 'Phishing Alert: Email to user...', timeText: '8h 54m | 2w', tags: [], assigneeImg: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Alice', severity: 'medium' },
-  { id: 'c4', state: 'in_progress', number: 667, category: 'Email Security', title: 'Phishing Alert: Email to bob@comp.com, Title: "Your package is ready, needs to be released from customs."', timeText: '2h 49m | 2w', tags: ['Phishing'], assigneeImg: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Bob', severity: 'high' },
-  { id: 'c5', state: 'on_hold', number: 521, category: 'Endpoint Detection and...', title: 'Suspicious Process Behavior on leonid-il-win', timeText: '-13w 1d | 1d', tags: ['phishing', '+4'], assigneeImg: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Dave', severity: 'critical' },
-  { id: 'c6', state: 'resolved', number: 658, category: 'Identity & Access Man...', title: 'User connected from two geographically remote IP locations in a short time period -', timeText: '13h 12m | 1d', tags: [], assigneeImg: 'https://api.dicebear.com/7.x/identicon/svg?seed=22', severity: 'low' },
-  { id: 'c7', state: 'closed', number: 616, category: 'Identity & Access Man...', title: 'User tried to login from new location with a failed MFA -', timeText: '3w 2d | 508w 2d', tags: [], assigneeImg: 'https://api.dicebear.com/7.x/avataaars/svg?seed=Eve', severity: 'low' },
 ]
 
 // --- Helper Components ---
@@ -102,6 +80,7 @@ function getSeverityColor(sev: string) {
 
 export function CasesPage() {
   const navigate = useNavigate()
+  const cases = useCasesStore(s => s.cases)
   const [selectedCase, setSelectedCase] = useState<BoardCase | null>(null)
   const [isExpanded, setIsExpanded] = useState(false)
   const [activeTab, setActiveTab] = useState('Overview')
@@ -188,14 +167,14 @@ export function CasesPage() {
       <div style={{ flex: 1, display: 'flex', overflowX: 'auto', overflowY: 'hidden', padding: '24px' }}>
         
         {COLUMNS.map(col => {
-          const colCases = MOCK_CASES.filter(c => c.state === col.id)
+          const colCases = cases.filter(c => c.state === col.id)
           return (
             <div key={col.id} style={{ width: 320, flexShrink: 0, display: 'flex', flexDirection: 'column', marginRight: 24 }}>
               
               {/* Column Header */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
                 <div style={{ fontSize: 16, fontWeight: 600, color: '#fff' }}>{col.label}</div>
-                <div style={{ background: '#252830', borderRadius: 12, padding: '2px 8px', fontSize: 12, fontWeight: 600, color: '#9ca3af' }}>{col.count}</div>
+                <div style={{ background: '#252830', borderRadius: 12, padding: '2px 8px', fontSize: 12, fontWeight: 600, color: '#9ca3af' }}>{colCases.length}</div>
               </div>
 
               {/* Card List in Column */}
