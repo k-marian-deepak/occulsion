@@ -67,6 +67,13 @@ type EmailTriggerInstance = {
   lastEventAt?: number
 }
 
+type CustomContainerEnvParameter = {
+  id: string
+  key: string
+  value: string
+  required: boolean
+}
+
 const TEST_TRIGGER_EVENTS = [
   { id: 'evt-1', label: 'Previous trigger event - Email phishing alert' },
   { id: 'evt-2', label: 'Previous trigger event - Suspicious login' },
@@ -380,6 +387,17 @@ function createTqFileUrl() {
   const random = Math.random().toString(16).slice(2)
   const stamp = Date.now().toString(16)
   return `tqfile://attachments/${stamp}-${random}`
+}
+
+function createDefaultCustomContainerEnvParameters(commandValue = 'such command, much wow!'): CustomContainerEnvParameter[] {
+  return [
+    {
+      id: 'env-command',
+      key: 'COMMAND',
+      value: commandValue,
+      required: false,
+    },
+  ]
 }
 
 function triggerNodeLabelForType(
@@ -2985,7 +3003,7 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const isEmailStep = /gmail|email/i.test(String(node.data?.subtext || '')) || /email|gmail/i.test(String(node.data?.label || ''))
   const isDateTimeStep = /date|time|datetime|timestamp/i.test(String(node.data?.label || ''))
   const isAdvancedTemplateStep = /template|golang|urlquery|print/i.test(String(node.data?.label || ''))
-  const isCustomContainerStep = /hello world|custom container|docker|container step/i.test(stepDescriptor)
+  const isCustomContainerPresetStep = /hello world|custom container|docker|container step/i.test(stepDescriptor)
   const isJqStep = /run\s*jq|jq command|\bjq\b/i.test(stepDescriptor)
   const isCurlyEscapeStep = /escape\s*\{\}/i.test(String(node.data?.label || ''))
   const isRawDataStep = /raw data/i.test(String(node.data?.label || ''))
@@ -3108,12 +3126,17 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const [teamsSelectedResponsePath, setTeamsSelectedResponsePath] = useState(String(node.data?.teamsSelectedResponsePath || '$.scan_ip_addresses.selected_response'))
   const [teamsAdaptiveCardPayload, setTeamsAdaptiveCardPayload] = useState(String(node.data?.teamsAdaptiveCardPayload || DEFAULT_TEAMS_ADAPTIVE_CARD))
   const [teamsAdaptiveResponsePath, setTeamsAdaptiveResponsePath] = useState(String(node.data?.teamsAdaptiveResponsePath || '$.follow_up_question.value.vendorSelection'))
+  const [customContainerEnabled, setCustomContainerEnabled] = useState(Boolean(node.data?.customContainerEnabled ?? isCustomContainerPresetStep))
   const [customContainerImage, setCustomContainerImage] = useState(String(node.data?.customContainerImage || 'joeattorq/helloworld:1.0.0'))
   const [customContainerStepId, setCustomContainerStepId] = useState(String(node.data?.customContainerStepId || 'hello_world'))
   const [customContainerPrettyName, setCustomContainerPrettyName] = useState(String(node.data?.customContainerPrettyName || 'Hello World'))
   const [customContainerDocumentationUrl, setCustomContainerDocumentationUrl] = useState(String(node.data?.customContainerDocumentationUrl || 'https://knowyourmeme.com/memes/doge'))
   const [customContainerIconUrl, setCustomContainerIconUrl] = useState(String(node.data?.customContainerIconUrl || 'https://raw.githubusercontent.com/joe-at-torq/Torq-Steps/main/Icons/cool-doge.png'))
-  const [customContainerCommand, setCustomContainerCommand] = useState(String(node.data?.customContainerCommand || 'such command, much wow!'))
+  const [customContainerEnvParameters, setCustomContainerEnvParameters] = useState<CustomContainerEnvParameter[]>(
+    Array.isArray(node.data?.customContainerEnvParameters)
+      ? node.data.customContainerEnvParameters
+      : createDefaultCustomContainerEnvParameters(String(node.data?.customContainerCommand || 'such command, much wow!')),
+  )
   const [customContainerDockerfile, setCustomContainerDockerfile] = useState(String(node.data?.customContainerDockerfile || DEFAULT_CONTAINER_DOCKERFILE))
   const [customContainerEntrypoint, setCustomContainerEntrypoint] = useState(String(node.data?.customContainerEntrypoint || DEFAULT_CONTAINER_ENTRYPOINT))
   const [rawDataInput, setRawDataInput] = useState(String(node.data?.rawDataInput || DEFAULT_RAW_DATA_INPUT))
@@ -3221,16 +3244,28 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
       return false
     }
   })()
+  const isCustomContainerBuilderActive = customContainerEnabled || isCustomContainerPresetStep
+  const effectiveCustomContainerEnvParameters =
+    customContainerEnvParameters.length > 0
+      ? customContainerEnvParameters
+      : createDefaultCustomContainerEnvParameters()
+  const customContainerRunEnvArgs = effectiveCustomContainerEnvParameters
+    .filter((parameter) => parameter.key.trim().length > 0)
+    .map((parameter) => `--env ${parameter.key.trim()}=\"${parameter.value}\"`)
+    .join(' ')
   const customContainerBuildCommand = 'docker build -t example . --platform=linux/amd64'
-  const customContainerRunCommand = `docker run -it --rm --name example --env COMMAND="${customContainerCommand || 'such command, much wow!'}" example`
+  const customContainerRunCommand = `docker run -it --rm --name example ${customContainerRunEnvArgs || '--env COMMAND="such command, much wow!"'} example`
   const customContainerTagCommand = `docker tag example yourdockerhub/example:${(customContainerImage.split(':')[1] || '1.0.0').trim() || '1.0.0'}`
   const customContainerPushCommand = `docker push yourdockerhub/example:${(customContainerImage.split(':')[1] || '1.0.0').trim() || '1.0.0'}`
+  const customContainerEnvYaml = effectiveCustomContainerEnvParameters
+    .map((parameter) => ` ${parameter.key || 'PARAM'}: ${parameter.value}`)
+    .join('\n')
   const customContainerYaml = `name: ${customContainerImage || 'yourdockerhub/example:1.0.0'}
 id: ${customContainerStepId || 'hello_world'}
 documentationUrl: ${customContainerDocumentationUrl || 'https://example.com/docs'}
 icon: ${customContainerIconUrl || 'https://example.com/icon.png'}
 env:
- COMMAND: ${customContainerCommand || 'such command, much wow!'}
+${customContainerEnvYaml || ' COMMAND: such command, much wow!'}
 pretty_name: ${customContainerPrettyName || 'Hello World'}
 isPrivate: false`
 
@@ -3250,6 +3285,11 @@ isPrivate: false`
   const updateTriggerInputParameters = (nextParams: TriggerInputParameter[]) => {
     setTriggerInputParameters(nextParams)
     persistNodeData({ triggerInputParameters: nextParams })
+  }
+
+  const updateCustomContainerEnvParameters = (nextParams: CustomContainerEnvParameter[]) => {
+    setCustomContainerEnvParameters(nextParams)
+    persistNodeData({ customContainerEnvParameters: nextParams })
   }
 
   const persistNodeData = (partial: Record<string, unknown>) => {
@@ -3508,12 +3548,17 @@ isPrivate: false`
     setTeamsSelectedResponsePath(String(node.data?.teamsSelectedResponsePath || '$.scan_ip_addresses.selected_response'))
     setTeamsAdaptiveCardPayload(String(node.data?.teamsAdaptiveCardPayload || DEFAULT_TEAMS_ADAPTIVE_CARD))
     setTeamsAdaptiveResponsePath(String(node.data?.teamsAdaptiveResponsePath || '$.follow_up_question.value.vendorSelection'))
+    setCustomContainerEnabled(Boolean(node.data?.customContainerEnabled ?? isCustomContainerPresetStep))
     setCustomContainerImage(String(node.data?.customContainerImage || 'joeattorq/helloworld:1.0.0'))
     setCustomContainerStepId(String(node.data?.customContainerStepId || 'hello_world'))
     setCustomContainerPrettyName(String(node.data?.customContainerPrettyName || 'Hello World'))
     setCustomContainerDocumentationUrl(String(node.data?.customContainerDocumentationUrl || 'https://knowyourmeme.com/memes/doge'))
     setCustomContainerIconUrl(String(node.data?.customContainerIconUrl || 'https://raw.githubusercontent.com/joe-at-torq/Torq-Steps/main/Icons/cool-doge.png'))
-    setCustomContainerCommand(String(node.data?.customContainerCommand || 'such command, much wow!'))
+    setCustomContainerEnvParameters(
+      Array.isArray(node.data?.customContainerEnvParameters)
+        ? node.data.customContainerEnvParameters
+        : createDefaultCustomContainerEnvParameters(String(node.data?.customContainerCommand || 'such command, much wow!')),
+    )
     setCustomContainerDockerfile(String(node.data?.customContainerDockerfile || DEFAULT_CONTAINER_DOCKERFILE))
     setCustomContainerEntrypoint(String(node.data?.customContainerEntrypoint || DEFAULT_CONTAINER_ENTRYPOINT))
     setAutocomplete(null)
@@ -3560,6 +3605,19 @@ isPrivate: false`
           >
             <i className="fa-regular fa-flag" />
           </button>
+          {!isTrigger && (
+            <button
+              onClick={() => {
+                const next = !customContainerEnabled
+                setCustomContainerEnabled(next)
+                persistNodeData({ customContainerEnabled: next })
+              }}
+              title={customContainerEnabled ? 'Disable custom container builder' : 'Enable custom container builder'}
+              style={{ background: 'none', border: 'none', color: customContainerEnabled ? '#22d3ee' : '#9ca3af', cursor: 'pointer', display: 'flex' }}
+            >
+              <i className="fa-solid fa-box" />
+            </button>
+          )}
           <button style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', display: 'flex' }}><i className="fa-solid fa-arrow-right-to-bracket" style={{ transform: 'rotate(180deg)' }} /></button>
           <button 
             onClick={() => {
@@ -5505,7 +5563,7 @@ isPrivate: false`
                   {EXECUTION_RESPONSE_CODES.join(' • ')}
                 </div>
               </>
-            ) : isCustomContainerStep ? (
+            ) : isCustomContainerBuilderActive ? (
               <>
                 <div style={{ marginBottom: 12, color: '#9ca3af', fontSize: 12, lineHeight: 1.5 }}>
                   Build a custom container step by defining Dockerfile + entrypoint, then map step inputs under <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>env</span> in step YAML.
@@ -5555,18 +5613,84 @@ isPrivate: false`
                 </div>
 
                 <div style={{ marginBottom: 14 }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>COMMAND (env parameter)</div>
-                  <input
-                    value={customContainerCommand}
-                    onChange={(event) => {
-                      const value = event.target.value
-                      setCustomContainerCommand(value)
-                      persistNodeData({ customContainerCommand: value })
-                    }}
-                    placeholder="such command, much wow!"
-                    style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
-                  />
-                  <div style={{ marginTop: 6, color: '#94a3b8', fontSize: 11 }}>In entrypoint scripts, read it as <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>$COMMAND</span>.</div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>Container env parameters</div>
+                    <button
+                      onClick={() => {
+                        const nextParams: CustomContainerEnvParameter[] = [
+                          ...effectiveCustomContainerEnvParameters,
+                          {
+                            id: `env-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+                            key: `PARAM_${effectiveCustomContainerEnvParameters.length + 1}`,
+                            value: '',
+                            required: false,
+                          },
+                        ]
+                        updateCustomContainerEnvParameters(nextParams)
+                      }}
+                      style={{ background: '#17191e', border: '1px solid #333842', color: '#e2e8f0', borderRadius: 6, padding: '4px 8px', fontSize: 11, cursor: 'pointer' }}
+                    >
+                      <i className="fa-solid fa-plus" style={{ marginRight: 6 }} /> Add
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {effectiveCustomContainerEnvParameters.map((parameter, parameterIndex) => (
+                      <div key={parameter.id} style={{ border: '1px solid #333842', borderRadius: 8, background: '#17191e', padding: 10 }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 8, marginBottom: 8 }}>
+                          <input
+                            value={parameter.key}
+                            onChange={(event) => {
+                              const value = event.target.value.toUpperCase().replace(/[^A-Z0-9_]/g, '_')
+                              const next = [...effectiveCustomContainerEnvParameters]
+                              next[parameterIndex] = { ...next[parameterIndex], key: value }
+                              updateCustomContainerEnvParameters(next)
+                            }}
+                            placeholder="COMMAND"
+                            style={{ width: '100%', background: '#0f1115', border: '1px solid #333842', borderRadius: 6, padding: '8px 10px', color: '#e2e8f0', fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
+                          />
+                          <input
+                            value={parameter.value}
+                            onChange={(event) => {
+                              const value = event.target.value
+                              const next = [...effectiveCustomContainerEnvParameters]
+                              next[parameterIndex] = { ...next[parameterIndex], value }
+                              updateCustomContainerEnvParameters(next)
+                            }}
+                            placeholder="such command, much wow!"
+                            style={{ width: '100%', background: '#0f1115', border: '1px solid #333842', borderRadius: 6, padding: '8px 10px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
+                          />
+                          <button
+                            onClick={() => {
+                              if (effectiveCustomContainerEnvParameters.length === 1) return
+                              const next = effectiveCustomContainerEnvParameters.filter((_, idx) => idx !== parameterIndex)
+                              updateCustomContainerEnvParameters(next)
+                            }}
+                            style={{ background: '#0f1115', border: '1px solid #333842', color: '#9ca3af', borderRadius: 6, padding: '8px 10px', fontSize: 11, cursor: effectiveCustomContainerEnvParameters.length === 1 ? 'not-allowed' : 'pointer', opacity: effectiveCustomContainerEnvParameters.length === 1 ? 0.5 : 1 }}
+                          >
+                            Remove
+                          </button>
+                        </div>
+
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#e2e8f0', fontSize: 12, cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={parameter.required}
+                            onChange={(event) => {
+                              const next = [...effectiveCustomContainerEnvParameters]
+                              next[parameterIndex] = { ...next[parameterIndex], required: event.target.checked }
+                              updateCustomContainerEnvParameters(next)
+                            }}
+                          />
+                          Required in UI
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div style={{ marginTop: 6, color: '#94a3b8', fontSize: 11 }}>
+                    Each key appears in the container as an env var (e.g. <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>$COMMAND</span>).
+                  </div>
                 </div>
 
                 <div style={{ marginBottom: 14 }}>
