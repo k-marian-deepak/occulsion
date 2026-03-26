@@ -2081,6 +2081,39 @@ const DEFAULT_SLACK_BLOCKS_PAYLOAD = `[
     ]
   }
 ]`
+const DEFAULT_TEAMS_ADAPTIVE_CARD = `{
+  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+  "type": "AdaptiveCard",
+  "version": "1.4",
+  "body": [
+    {
+      "type": "TextBlock",
+      "text": "The initial IP scan is not malicious. Check additional vendors?",
+      "wrap": true
+    },
+    {
+      "type": "Input.ChoiceSet",
+      "id": "vendorSelection",
+      "isMultiSelect": true,
+      "choices": [
+        { "title": "Recorded Future", "value": "Recorded Future" },
+        { "title": "AlienVault", "value": "AlienVault" }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "type": "Action.Submit",
+      "title": "Submit"
+    }
+  ]
+}`
+const LOST_DEVICE_HR_PROVIDERS = ['HiBob', 'BambooHR', 'Custom HTTP'] as const
+const LOST_DEVICE_TYPES = ['mobile_phone', 'company_laptop'] as const
+const DEFAULT_GOOGLE_SIGNOUT_URL =
+  'https://admin.googleapis.com/admin/directory/v1/users/{{ $.get_user_details.api_object.id }}/signOut'
+const DEFAULT_JUMPCLOUD_RESET_URL =
+  'https://console.jumpcloud.com/api/systemusers/{{ $.employee.result.0._id }}'
 
 function jsonEscapeInlineValue(value: string) {
   return JSON.stringify(value).slice(1, -1)
@@ -2275,16 +2308,21 @@ function renderAdvancedTemplatePreview(template: string, urlSource: string) {
 function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => void }) {
   const stepDescriptor = `${String(node.data?.label || '')} ${String(node.data?.subtext || '')}`
   const isSlack = /slack/i.test(stepDescriptor)
+  const isTeams = /teams|microsoft teams bot/i.test(stepDescriptor)
   const isTrigger = node.type === 'trigger'
   const isWebhookTrigger = isTrigger && /webhook/i.test(stepDescriptor)
   const isSlackTrigger = isTrigger && isSlack
+  const isTeamsTrigger = isTrigger && isTeams
   const isSlackSlashCommandTrigger = isSlackTrigger && /slash|command/i.test(stepDescriptor)
   const isSlackCustomEventsTrigger = isSlackTrigger && /custom|event|monitor|channel/i.test(stepDescriptor)
   const isExitOperator = /\bexit\b/i.test(String(node.data?.label || ''))
   const isCircleCIRotationStep = /circleci|secret rotation|environment variables|rotate secrets/i.test(stepDescriptor)
-  const isMessageLikeStep = /message|slack|ticket|log/i.test(String(node.data?.label || ''))
+  const isLostDeviceStep = /lost device|stolen device|missingdevice|lostdevice|offboarding/i.test(stepDescriptor)
+  const isMessageLikeStep = /message|slack|teams|adaptive card|ticket|log/i.test(String(node.data?.label || ''))
   const isSlackAskQuestionStep = isSlack && /ask|question/i.test(stepDescriptor)
   const isSlackMessageBlocksStep = isSlack && /block/i.test(stepDescriptor)
+  const isTeamsAskQuestionStep = isTeams && /ask|question|scan ip/i.test(stepDescriptor)
+  const isTeamsAdaptiveCardStep = isTeams && /adaptive card|follow-up question|send adaptive card form/i.test(stepDescriptor)
   const isEmailStep = /gmail|email/i.test(String(node.data?.subtext || '')) || /email|gmail/i.test(String(node.data?.label || ''))
   const isDateTimeStep = /date|time|datetime|timestamp/i.test(String(node.data?.label || ''))
   const isAdvancedTemplateStep = /template|golang|urlquery|print/i.test(String(node.data?.label || ''))
@@ -2307,6 +2345,9 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const [slackEventSubscription, setSlackEventSubscription] = useState<'messages.channels' | 'message.groups'>(String(node.data?.slackEventSubscription || 'messages.channels') as 'messages.channels' | 'message.groups')
   const [slackEventChannel, setSlackEventChannel] = useState(String(node.data?.slackEventChannel || '#security'))
   const [slackEventTextFilter, setSlackEventTextFilter] = useState(String(node.data?.slackEventTextFilter || 'check url'))
+  const [teamsTriggerPath, setTeamsTriggerPath] = useState(String(node.data?.teamsTriggerPath || '{{ $.event.attachments.0.content }}'))
+  const [teamsTriggerOperator, setTeamsTriggerOperator] = useState<'Contains' | 'Equals'>(String(node.data?.teamsTriggerOperator || 'Contains') as 'Contains' | 'Equals')
+  const [teamsTriggerValue, setTeamsTriggerValue] = useState(String(node.data?.teamsTriggerValue || 'check-ip'))
   const [mockOutputEnabled, setMockOutputEnabled] = useState(Boolean(node.data?.mockOutputEnabled))
   const [mockOutputText, setMockOutputText] = useState(String(node.data?.mockOutputText || buildMockOutputExample(String(node.data?.label || ''))))
   const [mockMenuOpen, setMockMenuOpen] = useState(false)
@@ -2318,6 +2359,22 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const [circleciIntegrationName, setCircleciIntegrationName] = useState(String(node.data?.circleciIntegrationName || DEFAULT_CIRCLECI_INTEGRATION))
   const [circleciStatusChannel, setCircleciStatusChannel] = useState(String(node.data?.circleciStatusChannel || DEFAULT_CIRCLECI_STATUS_CHANNEL))
   const [circleciStatusNote, setCircleciStatusNote] = useState(String(node.data?.circleciStatusNote || ''))
+  const [lostDeviceTriggerIntegration, setLostDeviceTriggerIntegration] = useState<'Slack Slash Command' | 'Discord Slash Command' | 'Teams Bot Command'>(String(node.data?.lostDeviceTriggerIntegration || 'Slack Slash Command') as 'Slack Slash Command' | 'Discord Slash Command' | 'Teams Bot Command')
+  const [lostDeviceCommand, setLostDeviceCommand] = useState(String(node.data?.lostDeviceCommand || '/lostdevice'))
+  const [lostDeviceAlertChannel, setLostDeviceAlertChannel] = useState(String(node.data?.lostDeviceAlertChannel || '#it-security'))
+  const [lostDeviceHrProvider, setLostDeviceHrProvider] = useState<(typeof LOST_DEVICE_HR_PROVIDERS)[number]>(String(node.data?.lostDeviceHrProvider || 'BambooHR') as (typeof LOST_DEVICE_HR_PROVIDERS)[number])
+  const [lostDeviceEmployeeEmailPath, setLostDeviceEmployeeEmailPath] = useState(String(node.data?.lostDeviceEmployeeEmailPath || '$.event.user_email'))
+  const [lostDeviceTypePromptPath, setLostDeviceTypePromptPath] = useState(String(node.data?.lostDeviceTypePromptPath || '$.lost_device_type.selected_response'))
+  const [lostDeviceTypeDefault, setLostDeviceTypeDefault] = useState<(typeof LOST_DEVICE_TYPES)[number]>(String(node.data?.lostDeviceTypeDefault || 'mobile_phone') as (typeof LOST_DEVICE_TYPES)[number])
+  const [lostDeviceJumpcloudLoopEnd, setLostDeviceJumpcloudLoopEnd] = useState(String(node.data?.lostDeviceJumpcloudLoopEnd || '100'))
+  const [lostDeviceJumpcloudBatch, setLostDeviceJumpcloudBatch] = useState(String(node.data?.lostDeviceJumpcloudBatch || '100'))
+  const [lostDeviceJumpcloudOutputPath, setLostDeviceJumpcloudOutputPath] = useState(String(node.data?.lostDeviceJumpcloudOutputPath || '$.list_all_jumpcloud_users.output'))
+  const [lostDeviceManagerPath, setLostDeviceManagerPath] = useState(String(node.data?.lostDeviceManagerPath || '$.get_full_details_of_employee.api_object.work.manager'))
+  const [lostDeviceGoogleSignoutUrl, setLostDeviceGoogleSignoutUrl] = useState(String(node.data?.lostDeviceGoogleSignoutUrl || DEFAULT_GOOGLE_SIGNOUT_URL))
+  const [lostDeviceJumpcloudResetUrl, setLostDeviceJumpcloudResetUrl] = useState(String(node.data?.lostDeviceJumpcloudResetUrl || DEFAULT_JUMPCLOUD_RESET_URL))
+  const [lostDevicePasswordLength, setLostDevicePasswordLength] = useState(String(node.data?.lostDevicePasswordLength || '14'))
+  const [lostDeviceAltEmailPath, setLostDeviceAltEmailPath] = useState(String(node.data?.lostDeviceAltEmailPath || '$.employee.result.0.alternateEmail'))
+  const [lostDeviceStatusNote, setLostDeviceStatusNote] = useState(String(node.data?.lostDeviceStatusNote || ''))
   const [isHttpMode, setIsHttpMode] = useState(false)
   const [showHttpConfirm, setShowHttpConfirm] = useState(false)
   const [recipient, setRecipient] = useState(String(node.data?.recipient || ''))
@@ -2331,6 +2388,16 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const [slackThreadTs, setSlackThreadTs] = useState(String(node.data?.slackThreadTs || '{{ $.ask_a_question.ts }}'))
   const [slackWaitDurationPath, setSlackWaitDurationPath] = useState(String(node.data?.slackWaitDurationPath || '$.ask_a_question.note_response'))
   const [slackBlocksPayload, setSlackBlocksPayload] = useState(String(node.data?.slackBlocksPayload || DEFAULT_SLACK_BLOCKS_PAYLOAD))
+  const inferredTeamsStepMode = isTeamsAdaptiveCardStep ? 'adaptive-card' : isTeamsAskQuestionStep ? 'ask-question' : 'post-message'
+  const [teamsStepMode, setTeamsStepMode] = useState<'post-message' | 'ask-question' | 'adaptive-card'>(String(node.data?.teamsStepMode || inferredTeamsStepMode) as 'post-message' | 'ask-question' | 'adaptive-card')
+  const [teamsAutoInstallBot, setTeamsAutoInstallBot] = useState<'true' | 'false'>(String(node.data?.teamsAutoInstallBot || 'true') as 'true' | 'false')
+  const [teamsQuestionResponses, setTeamsQuestionResponses] = useState(String(node.data?.teamsQuestionResponses || 'Yes,No'))
+  const [teamsQuestionPresentation, setTeamsQuestionPresentation] = useState<'buttons' | 'dropdown'>(String(node.data?.teamsQuestionPresentation || 'buttons') as 'buttons' | 'dropdown')
+  const [teamsQuestionTimeoutHours, setTeamsQuestionTimeoutHours] = useState(String(node.data?.teamsQuestionTimeoutHours || '24'))
+  const [teamsQuestionDefaultResponse, setTeamsQuestionDefaultResponse] = useState(String(node.data?.teamsQuestionDefaultResponse || 'No response'))
+  const [teamsSelectedResponsePath, setTeamsSelectedResponsePath] = useState(String(node.data?.teamsSelectedResponsePath || '$.scan_ip_addresses.selected_response'))
+  const [teamsAdaptiveCardPayload, setTeamsAdaptiveCardPayload] = useState(String(node.data?.teamsAdaptiveCardPayload || DEFAULT_TEAMS_ADAPTIVE_CARD))
+  const [teamsAdaptiveResponsePath, setTeamsAdaptiveResponsePath] = useState(String(node.data?.teamsAdaptiveResponsePath || '$.follow_up_question.value.vendorSelection'))
   const [rawDataInput, setRawDataInput] = useState(String(node.data?.rawDataInput || DEFAULT_RAW_DATA_INPUT))
   const [addJsonInput, setAddJsonInput] = useState(String(node.data?.addJsonInput || DEFAULT_ADD_TO_JSON_INPUT))
   const [curlyEscapeInput, setCurlyEscapeInput] = useState(String(node.data?.curlyEscapeInput || DEFAULT_CURLY_ESCAPE_STATIC))
@@ -2394,6 +2461,15 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
       return false
     }
   })()
+  const teamsAdaptiveCardJsonValid = (() => {
+    try {
+      JSON.parse(teamsAdaptiveCardPayload)
+      return true
+    } catch {
+      return false
+    }
+  })()
+  const showMessageTextEditor = !((isSlack && slackStepMode === 'message-blocks') || (isTeams && teamsStepMode === 'adaptive-card'))
   const mockOutputJsonValid = (() => {
     if (mockOutputHasTemplate) return true
     try {
@@ -2549,7 +2625,7 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   }, [node])
 
   useEffect(() => {
-    setRecipient(String(node.data?.recipient || ''))
+    setRecipient(String(node.data?.recipient || (isTeams ? '{{ $.event.conversation.id }}' : '')))
     setMessageText(String(node.data?.messageText || ''))
     setContentType(String(node.data?.contentType || 'text/plain'))
     setRawDataInput(String(node.data?.rawDataInput || DEFAULT_RAW_DATA_INPUT))
@@ -2577,6 +2653,9 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
     setSlackEventSubscription(String(node.data?.slackEventSubscription || 'messages.channels') as 'messages.channels' | 'message.groups')
     setSlackEventChannel(String(node.data?.slackEventChannel || '#security'))
     setSlackEventTextFilter(String(node.data?.slackEventTextFilter || 'check url'))
+    setTeamsTriggerPath(String(node.data?.teamsTriggerPath || '{{ $.event.attachments.0.content }}'))
+    setTeamsTriggerOperator(String(node.data?.teamsTriggerOperator || 'Contains') as 'Contains' | 'Equals')
+    setTeamsTriggerValue(String(node.data?.teamsTriggerValue || 'check-ip'))
     setMockOutputEnabled(Boolean(node.data?.mockOutputEnabled))
     setMockOutputText(String(node.data?.mockOutputText || buildMockOutputExample(String(node.data?.label || ''))))
     setMockMenuOpen(false)
@@ -2588,6 +2667,22 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
     setCircleciIntegrationName(String(node.data?.circleciIntegrationName || DEFAULT_CIRCLECI_INTEGRATION))
     setCircleciStatusChannel(String(node.data?.circleciStatusChannel || DEFAULT_CIRCLECI_STATUS_CHANNEL))
     setCircleciStatusNote(String(node.data?.circleciStatusNote || ''))
+    setLostDeviceTriggerIntegration(String(node.data?.lostDeviceTriggerIntegration || 'Slack Slash Command') as 'Slack Slash Command' | 'Discord Slash Command' | 'Teams Bot Command')
+    setLostDeviceCommand(String(node.data?.lostDeviceCommand || '/lostdevice'))
+    setLostDeviceAlertChannel(String(node.data?.lostDeviceAlertChannel || '#it-security'))
+    setLostDeviceHrProvider(String(node.data?.lostDeviceHrProvider || 'BambooHR') as (typeof LOST_DEVICE_HR_PROVIDERS)[number])
+    setLostDeviceEmployeeEmailPath(String(node.data?.lostDeviceEmployeeEmailPath || '$.event.user_email'))
+    setLostDeviceTypePromptPath(String(node.data?.lostDeviceTypePromptPath || '$.lost_device_type.selected_response'))
+    setLostDeviceTypeDefault(String(node.data?.lostDeviceTypeDefault || 'mobile_phone') as (typeof LOST_DEVICE_TYPES)[number])
+    setLostDeviceJumpcloudLoopEnd(String(node.data?.lostDeviceJumpcloudLoopEnd || '100'))
+    setLostDeviceJumpcloudBatch(String(node.data?.lostDeviceJumpcloudBatch || '100'))
+    setLostDeviceJumpcloudOutputPath(String(node.data?.lostDeviceJumpcloudOutputPath || '$.list_all_jumpcloud_users.output'))
+    setLostDeviceManagerPath(String(node.data?.lostDeviceManagerPath || '$.get_full_details_of_employee.api_object.work.manager'))
+    setLostDeviceGoogleSignoutUrl(String(node.data?.lostDeviceGoogleSignoutUrl || DEFAULT_GOOGLE_SIGNOUT_URL))
+    setLostDeviceJumpcloudResetUrl(String(node.data?.lostDeviceJumpcloudResetUrl || DEFAULT_JUMPCLOUD_RESET_URL))
+    setLostDevicePasswordLength(String(node.data?.lostDevicePasswordLength || '14'))
+    setLostDeviceAltEmailPath(String(node.data?.lostDeviceAltEmailPath || '$.employee.result.0.alternateEmail'))
+    setLostDeviceStatusNote(String(node.data?.lostDeviceStatusNote || ''))
     setSlackStepMode(String(node.data?.slackStepMode || (isSlackMessageBlocksStep ? 'message-blocks' : isSlackAskQuestionStep ? 'ask-question' : 'send-message')) as 'send-message' | 'ask-question' | 'message-blocks')
     setSlackQuestionResponses(String(node.data?.slackQuestionResponses || 'Yes,No'))
     setSlackQuestionResponseType(String(node.data?.slackQuestionResponseType || 'buttons') as 'buttons' | 'single-select' | 'multi-select')
@@ -2595,6 +2690,15 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
     setSlackThreadTs(String(node.data?.slackThreadTs || '{{ $.ask_a_question.ts }}'))
     setSlackWaitDurationPath(String(node.data?.slackWaitDurationPath || '$.ask_a_question.note_response'))
     setSlackBlocksPayload(String(node.data?.slackBlocksPayload || DEFAULT_SLACK_BLOCKS_PAYLOAD))
+    setTeamsStepMode(String(node.data?.teamsStepMode || (isTeamsAdaptiveCardStep ? 'adaptive-card' : isTeamsAskQuestionStep ? 'ask-question' : 'post-message')) as 'post-message' | 'ask-question' | 'adaptive-card')
+    setTeamsAutoInstallBot(String(node.data?.teamsAutoInstallBot || 'true') as 'true' | 'false')
+    setTeamsQuestionResponses(String(node.data?.teamsQuestionResponses || 'Yes,No'))
+    setTeamsQuestionPresentation(String(node.data?.teamsQuestionPresentation || 'buttons') as 'buttons' | 'dropdown')
+    setTeamsQuestionTimeoutHours(String(node.data?.teamsQuestionTimeoutHours || '24'))
+    setTeamsQuestionDefaultResponse(String(node.data?.teamsQuestionDefaultResponse || 'No response'))
+    setTeamsSelectedResponsePath(String(node.data?.teamsSelectedResponsePath || '$.scan_ip_addresses.selected_response'))
+    setTeamsAdaptiveCardPayload(String(node.data?.teamsAdaptiveCardPayload || DEFAULT_TEAMS_ADAPTIVE_CARD))
+    setTeamsAdaptiveResponsePath(String(node.data?.teamsAdaptiveResponsePath || '$.follow_up_question.value.vendorSelection'))
     setAutocomplete(null)
     setActiveField(null)
     setPickerOpenFor(null)
@@ -2800,7 +2904,57 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
           </div>
         ) : (
           <div>
-            {isSlackTrigger ? (
+            {isTeamsTrigger ? (
+              <>
+                <div style={{ marginBottom: 12, color: '#9ca3af', fontSize: 12, lineHeight: 1.5 }}>
+                  Trigger when a Teams bot message matches your command pattern.
+                </div>
+
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Will trigger when</div>
+                  <input
+                    value={teamsTriggerPath}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      setTeamsTriggerPath(value)
+                      persistNodeData({ teamsTriggerPath: value })
+                    }}
+                    style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', fontFamily: 'monospace', marginBottom: 10 }}
+                  />
+                  <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr', gap: 8 }}>
+                    <div style={{ position: 'relative' }}>
+                      <select
+                        value={teamsTriggerOperator}
+                        onChange={(event) => {
+                          const value = event.target.value as 'Contains' | 'Equals'
+                          setTeamsTriggerOperator(value)
+                          persistNodeData({ teamsTriggerOperator: value })
+                        }}
+                        style={{ width: '100%', appearance: 'none', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                      >
+                        <option value="Contains">Contains</option>
+                        <option value="Equals">Equals</option>
+                      </select>
+                      <ChevronDown size={14} color="#9ca3af" style={{ position: 'absolute', right: 12, top: 12, pointerEvents: 'none' }} />
+                    </div>
+                    <input
+                      value={teamsTriggerValue}
+                      onChange={(event) => {
+                        const value = event.target.value
+                        setTeamsTriggerValue(value)
+                        persistNodeData({ teamsTriggerValue: value })
+                      }}
+                      placeholder="check-ip"
+                      style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                    />
+                  </div>
+                </div>
+
+                <button style={{ background: 'transparent', border: 'none', color: '#cbd5e1', padding: 0, fontSize: 12, cursor: 'pointer', marginBottom: 16 }}>
+                  Add Condition
+                </button>
+              </>
+            ) : isSlackTrigger ? (
               <>
                 <div style={{ marginBottom: 16 }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Slack trigger type</div>
@@ -3091,6 +3245,268 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                   </div>
                 )}
               </>
+            ) : isLostDeviceStep ? (
+              <>
+                <div style={{ marginBottom: 12, color: '#9ca3af', fontSize: 12, lineHeight: 1.5 }}>
+                  Secure lost or stolen devices by collecting employee details, branching by device type, and executing forced sign-out and password reset actions.
+                </div>
+
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Trigger integration + command</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <div style={{ position: 'relative' }}>
+                      <select
+                        value={lostDeviceTriggerIntegration}
+                        onChange={(event) => {
+                          const value = event.target.value as 'Slack Slash Command' | 'Discord Slash Command' | 'Teams Bot Command'
+                          setLostDeviceTriggerIntegration(value)
+                          persistNodeData({ lostDeviceTriggerIntegration: value })
+                        }}
+                        style={{ width: '100%', appearance: 'none', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
+                      >
+                        <option>Slack Slash Command</option>
+                        <option>Discord Slash Command</option>
+                        <option>Teams Bot Command</option>
+                      </select>
+                      <ChevronDown size={14} color="#9ca3af" style={{ position: 'absolute', right: 12, top: 12, pointerEvents: 'none' }} />
+                    </div>
+                    <input
+                      value={lostDeviceCommand}
+                      onChange={(event) => {
+                        const value = event.target.value
+                        setLostDeviceCommand(value)
+                        persistNodeData({ lostDeviceCommand: value })
+                      }}
+                      placeholder="/lostdevice"
+                      style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Initial IT/CISO alert channel</div>
+                  <input
+                    value={lostDeviceAlertChannel}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      setLostDeviceAlertChannel(value)
+                      persistNodeData({ lostDeviceAlertChannel: value })
+                    }}
+                    placeholder="#it-security"
+                    style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Employee lookup</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <div style={{ position: 'relative' }}>
+                      <select
+                        value={lostDeviceHrProvider}
+                        onChange={(event) => {
+                          const value = event.target.value as (typeof LOST_DEVICE_HR_PROVIDERS)[number]
+                          setLostDeviceHrProvider(value)
+                          persistNodeData({ lostDeviceHrProvider: value })
+                        }}
+                        style={{ width: '100%', appearance: 'none', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
+                      >
+                        {LOST_DEVICE_HR_PROVIDERS.map((provider) => (
+                          <option key={provider} value={provider}>{provider}</option>
+                        ))}
+                      </select>
+                      <ChevronDown size={14} color="#9ca3af" style={{ position: 'absolute', right: 12, top: 12, pointerEvents: 'none' }} />
+                    </div>
+                    <input
+                      value={lostDeviceEmployeeEmailPath}
+                      onChange={(event) => {
+                        const value = event.target.value
+                        setLostDeviceEmployeeEmailPath(value)
+                        persistNodeData({ lostDeviceEmployeeEmailPath: value })
+                      }}
+                      placeholder="$.event.user_email"
+                      style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Device-type question + switch default</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <input
+                      value={lostDeviceTypePromptPath}
+                      onChange={(event) => {
+                        const value = event.target.value
+                        setLostDeviceTypePromptPath(value)
+                        persistNodeData({ lostDeviceTypePromptPath: value })
+                      }}
+                      placeholder="$.lost_device_type.selected_response"
+                      style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
+                    />
+                    <div style={{ position: 'relative' }}>
+                      <select
+                        value={lostDeviceTypeDefault}
+                        onChange={(event) => {
+                          const value = event.target.value as (typeof LOST_DEVICE_TYPES)[number]
+                          setLostDeviceTypeDefault(value)
+                          persistNodeData({ lostDeviceTypeDefault: value })
+                        }}
+                        style={{ width: '100%', appearance: 'none', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
+                      >
+                        {LOST_DEVICE_TYPES.map((deviceType) => (
+                          <option key={deviceType} value={deviceType}>{deviceType}</option>
+                        ))}
+                      </select>
+                      <ChevronDown size={14} color="#9ca3af" style={{ position: 'absolute', right: 12, top: 12, pointerEvents: 'none' }} />
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>JumpCloud list-all-users loop (Range)</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                    <input
+                      value={'1'}
+                      readOnly
+                      style={{ width: '100%', background: '#0f1115', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#94a3b8', fontSize: 12, outline: 'none' }}
+                    />
+                    <input
+                      value={lostDeviceJumpcloudLoopEnd}
+                      onChange={(event) => {
+                        const value = event.target.value
+                        setLostDeviceJumpcloudLoopEnd(value)
+                        persistNodeData({ lostDeviceJumpcloudLoopEnd: value })
+                      }}
+                      placeholder="100"
+                      style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
+                    />
+                    <input
+                      value={lostDeviceJumpcloudBatch}
+                      onChange={(event) => {
+                        const value = event.target.value
+                        setLostDeviceJumpcloudBatch(value)
+                        persistNodeData({ lostDeviceJumpcloudBatch: value })
+                      }}
+                      placeholder="100"
+                      style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
+                    />
+                  </div>
+                  <div style={{ marginTop: 8, color: '#9ca3af', fontSize: 11 }}>
+                    Start / End / Batch Size for List Users offset pagination.
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Collected users output + manager path</div>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    <input
+                      value={lostDeviceJumpcloudOutputPath}
+                      onChange={(event) => {
+                        const value = event.target.value
+                        setLostDeviceJumpcloudOutputPath(value)
+                        persistNodeData({ lostDeviceJumpcloudOutputPath: value })
+                      }}
+                      placeholder="$.list_all_jumpcloud_users.output"
+                      style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
+                    />
+                    <input
+                      value={lostDeviceManagerPath}
+                      onChange={(event) => {
+                        const value = event.target.value
+                        setLostDeviceManagerPath(value)
+                        persistNodeData({ lostDeviceManagerPath: value })
+                      }}
+                      placeholder="$.get_full_details_of_employee.api_object.work.manager"
+                      style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Containment endpoints + password reset</div>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    <input
+                      value={lostDeviceGoogleSignoutUrl}
+                      onChange={(event) => {
+                        const value = event.target.value
+                        setLostDeviceGoogleSignoutUrl(value)
+                        persistNodeData({ lostDeviceGoogleSignoutUrl: value })
+                      }}
+                      placeholder={DEFAULT_GOOGLE_SIGNOUT_URL}
+                      style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 11, outline: 'none', fontFamily: 'monospace' }}
+                    />
+                    <input
+                      value={lostDeviceJumpcloudResetUrl}
+                      onChange={(event) => {
+                        const value = event.target.value
+                        setLostDeviceJumpcloudResetUrl(value)
+                        persistNodeData({ lostDeviceJumpcloudResetUrl: value })
+                      }}
+                      placeholder={DEFAULT_JUMPCLOUD_RESET_URL}
+                      style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 11, outline: 'none', fontFamily: 'monospace' }}
+                    />
+                    <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 8 }}>
+                      <input
+                        value={lostDevicePasswordLength}
+                        onChange={(event) => {
+                          const value = event.target.value
+                          setLostDevicePasswordLength(value)
+                          persistNodeData({ lostDevicePasswordLength: value })
+                        }}
+                        placeholder="14"
+                        style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
+                      />
+                      <input
+                        value={lostDeviceAltEmailPath}
+                        onChange={(event) => {
+                          const value = event.target.value
+                          setLostDeviceAltEmailPath(value)
+                          persistNodeData({ lostDeviceAltEmailPath: value })
+                        }}
+                        placeholder="$.employee.result.0.alternateEmail"
+                        style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 11, outline: 'none', fontFamily: 'monospace' }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.6 }}>
+                  <strong style={{ color: '#e2e8f0' }}>Execution blueprint</strong><br />
+                  1) Trigger on <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{lostDeviceCommand || '/lostdevice'}</span> via {lostDeviceTriggerIntegration}.<br />
+                  2) Lookup employee in <span style={{ color: '#e2e8f0' }}>{lostDeviceHrProvider}</span> using <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{lostDeviceEmployeeEmailPath}</span>.<br />
+                  3) Ask device type, branch by <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{lostDeviceTypePromptPath}</span>.<br />
+                  4) Enumerate JumpCloud users/systems and notify manager + IT.<br />
+                  5) Force Google sign-out, reset JumpCloud password, and notify alternate email.
+                </div>
+
+                <div style={{ marginBottom: 10, display: 'flex', gap: 8 }}>
+                  <button
+                    onClick={() => {
+                      const note = `Lost-device containment plan prepared for ${lostDeviceCommand} (${lostDeviceHrProvider})`
+                      setLostDeviceStatusNote(note)
+                      persistNodeData({ lostDeviceStatusNote: note })
+                    }}
+                    style={{ background: '#17191e', border: '1px solid #333842', color: '#e2e8f0', borderRadius: 6, padding: '6px 10px', fontSize: 11, cursor: 'pointer' }}
+                  >
+                    Validate Workflow Plan
+                  </button>
+                  <button
+                    onClick={() =>
+                      copyText(
+                        `LostDevice workflow configured: trigger=${lostDeviceCommand}; hr=${lostDeviceHrProvider}; channel=${lostDeviceAlertChannel}; googleSignOut=${lostDeviceGoogleSignoutUrl}; jumpcloudReset=${lostDeviceJumpcloudResetUrl}`,
+                      )
+                    }
+                    style={{ background: '#17191e', border: '1px solid #333842', color: '#e2e8f0', borderRadius: 6, padding: '6px 10px', fontSize: 11, cursor: 'pointer' }}
+                  >
+                    Copy Runbook Summary
+                  </button>
+                </div>
+
+                {lostDeviceStatusNote && (
+                  <div style={{ marginBottom: 16, color: '#86efac', fontSize: 11, border: '1px solid #14532d', background: 'rgba(20,83,45,0.25)', borderRadius: 6, padding: '8px 10px' }}>
+                    {lostDeviceStatusNote}
+                  </div>
+                )}
+              </>
             ) : isExitOperator ? (
               <>
                 <div style={{ marginBottom: 12, color: '#9ca3af', fontSize: 12, lineHeight: 1.5 }}>
@@ -3174,6 +3590,31 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                   </div>
                 )}
 
+                {isTeams && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Teams step type</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                      {[
+                        { id: 'post-message', label: 'Post message' },
+                        { id: 'ask-question', label: 'Ask question' },
+                        { id: 'adaptive-card', label: 'Adaptive card' },
+                      ].map((option) => (
+                        <button
+                          key={option.id}
+                          onClick={() => {
+                            const mode = option.id as 'post-message' | 'ask-question' | 'adaptive-card'
+                            setTeamsStepMode(mode)
+                            persistNodeData({ teamsStepMode: mode })
+                          }}
+                          style={{ background: teamsStepMode === option.id ? '#334155' : '#17191e', border: '1px solid #333842', borderRadius: 6, color: '#e2e8f0', padding: '8px 10px', textAlign: 'left', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div style={{ marginBottom: 16, position: 'relative' }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <span>Recipient</span>
@@ -3238,10 +3679,10 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                   )}
                 </div>
 
-                {(slackStepMode !== 'message-blocks' || !isSlack) && (
+                {showMessageTextEditor && (
                 <div style={{ marginBottom: 24, position: 'relative' }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span>{isSlack && slackStepMode === 'ask-question' ? 'Question text' : 'Message text'}</span>
+                    <span>{(isSlack && slackStepMode === 'ask-question') || (isTeams && teamsStepMode === 'ask-question') ? 'Question' : 'Message text'}</span>
                     <button
                       onClick={() => setPickerOpenFor((prev) => (prev === 'message' ? null : 'message'))}
                       style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}
@@ -3265,7 +3706,7 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                       const target = event.currentTarget
                       updateAutocomplete('message', target.value, target.selectionStart ?? target.value.length)
                     }}
-                    placeholder={isSlack && slackStepMode === 'ask-question' ? 'Confirm URL scan for {{ $.loop.current_url }}?' : 'Type message. Use {{ $.metadata. }} for execution context'}
+                    placeholder={(isSlack && slackStepMode === 'ask-question') || (isTeams && teamsStepMode === 'ask-question') ? 'Do you want to scan this IP address?' : 'Type message. Use {{ $.metadata. }} for execution context'}
                     style={{ width: '100%', minHeight: 150, background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
                   />
 
@@ -3302,6 +3743,27 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                     </div>
                   )}
                 </div>
+                )}
+
+                {isTeams && teamsStepMode === 'post-message' && (
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>AUTO_INSTALL_BOT</div>
+                    <div style={{ position: 'relative' }}>
+                      <select
+                        value={teamsAutoInstallBot}
+                        onChange={(event) => {
+                          const value = event.target.value as 'true' | 'false'
+                          setTeamsAutoInstallBot(value)
+                          persistNodeData({ teamsAutoInstallBot: value })
+                        }}
+                        style={{ width: '100%', appearance: 'none', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                      >
+                        <option value="true">true</option>
+                        <option value="false">false</option>
+                      </select>
+                      <ChevronDown size={14} color="#9ca3af" style={{ position: 'absolute', right: 12, top: 12, pointerEvents: 'none' }} />
+                    </div>
+                  </div>
                 )}
 
                 {isSlack && slackStepMode === 'ask-question' && (
@@ -3387,6 +3849,89 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                   </>
                 )}
 
+                {isTeams && teamsStepMode === 'ask-question' && (
+                  <>
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Responses</div>
+                      <input
+                        value={teamsQuestionResponses}
+                        onChange={(event) => {
+                          const value = event.target.value
+                          setTeamsQuestionResponses(value)
+                          persistNodeData({ teamsQuestionResponses: value })
+                        }}
+                        placeholder="Yes,No"
+                        style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                      />
+                    </div>
+
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Display responses as</div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                        {[
+                          { id: 'buttons', label: 'Buttons' },
+                          { id: 'dropdown', label: 'Drop-down' },
+                        ].map((option) => (
+                          <button
+                            key={option.id}
+                            onClick={() => {
+                              const value = option.id as 'buttons' | 'dropdown'
+                              setTeamsQuestionPresentation(value)
+                              persistNodeData({ teamsQuestionPresentation: value })
+                            }}
+                            style={{ background: teamsQuestionPresentation === option.id ? '#334155' : '#17191e', border: '1px solid #333842', borderRadius: 6, color: '#e2e8f0', padding: '8px 10px', textAlign: 'left', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div style={{ marginBottom: 14, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Timeout (hours)</div>
+                        <input
+                          value={teamsQuestionTimeoutHours}
+                          onChange={(event) => {
+                            const value = event.target.value
+                            setTeamsQuestionTimeoutHours(value)
+                            persistNodeData({ teamsQuestionTimeoutHours: value })
+                          }}
+                          placeholder="24"
+                          style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                        />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Default response</div>
+                        <input
+                          value={teamsQuestionDefaultResponse}
+                          onChange={(event) => {
+                            const value = event.target.value
+                            setTeamsQuestionDefaultResponse(value)
+                            persistNodeData({ teamsQuestionDefaultResponse: value })
+                          }}
+                          placeholder="No response"
+                          style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ marginBottom: 16 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Selected response path</div>
+                      <input
+                        value={teamsSelectedResponsePath}
+                        onChange={(event) => {
+                          const value = event.target.value
+                          setTeamsSelectedResponsePath(value)
+                          persistNodeData({ teamsSelectedResponsePath: value })
+                        }}
+                        placeholder="$.scan_ip_addresses.selected_response"
+                        style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
+                      />
+                    </div>
+                  </>
+                )}
+
                 {isSlack && slackStepMode === 'message-blocks' && (
                   <>
                     <div style={{ marginBottom: 14 }}>
@@ -3411,6 +3956,44 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                   </>
                 )}
 
+                {isTeams && teamsStepMode === 'adaptive-card' && (
+                  <>
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>ADAPTIVE_CARD</div>
+                      <textarea
+                        value={teamsAdaptiveCardPayload}
+                        onChange={(event) => {
+                          const value = event.target.value
+                          setTeamsAdaptiveCardPayload(value)
+                          persistNodeData({ teamsAdaptiveCardPayload: value })
+                        }}
+                        placeholder="Paste Adaptive Card JSON"
+                        style={{ width: '100%', minHeight: 220, background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
+                      />
+                    </div>
+
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Adaptive card response path</div>
+                      <input
+                        value={teamsAdaptiveResponsePath}
+                        onChange={(event) => {
+                          const value = event.target.value
+                          setTeamsAdaptiveResponsePath(value)
+                          persistNodeData({ teamsAdaptiveResponsePath: value })
+                        }}
+                        placeholder="$.follow_up_question.value.vendorSelection"
+                        style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
+                      />
+                    </div>
+
+                    <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: `1px solid ${teamsAdaptiveCardJsonValid ? '#14532d' : '#7f1d1d'}`, background: teamsAdaptiveCardJsonValid ? 'rgba(20,83,45,0.25)' : 'rgba(127,29,29,0.25)', color: teamsAdaptiveCardJsonValid ? '#86efac' : '#fca5a5', fontSize: 11, lineHeight: 1.5 }}>
+                      {teamsAdaptiveCardJsonValid
+                        ? 'Adaptive card payload is valid JSON.'
+                        : 'Adaptive card payload must be valid JSON.'}
+                    </div>
+                  </>
+                )}
+
                 <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.5 }}>
                   Use workflow context in inputs: <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ $.event.user.firstName }}'}</span> or <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ $.metadata.execution_id }}'}</span>
                 </div>
@@ -3418,6 +4001,12 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                 {isSlack && (
                   <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.5 }}>
                     Slack shortcuts: recipient <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>#{'{'}{'{'} $.event.channel_id {'}'}{'}'}</span>, mention <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ $.event.user_name }}'}</span>, response <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>$.ask_a_question.slack_response</span>.
+                  </div>
+                )}
+
+                {isTeams && (
+                  <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.5 }}>
+                    Teams shortcuts: recipient <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ $.event.conversation.id }}'}</span>, sender <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ $.event.from.name }}'}</span>, selected response <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{teamsSelectedResponsePath}</span>.
                   </div>
                 )}
 
