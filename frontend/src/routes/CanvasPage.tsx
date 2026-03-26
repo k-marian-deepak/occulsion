@@ -2038,6 +2038,28 @@ const PYTHON_SCRIPT_TEMPLATES = [
   },
 ]
 
+const CIRCLECI_ROTATION_TEMPLATES = [
+  {
+    id: 'global',
+    title: 'Gather CircleCI Global Environment Variables with Creation Date',
+    scope: 'Global variables',
+  },
+  {
+    id: 'github',
+    title: 'Gather CircleCI Environment Variables from GitHub Org Repos',
+    scope: 'Project variables (GitHub)',
+  },
+  {
+    id: 'bitbucket',
+    title: 'Gather CircleCI Environment Variables from Bitbucket Repos',
+    scope: 'Project variables (Bitbucket)',
+  },
+] as const
+
+const DEFAULT_CIRCLECI_CREATED_BEFORE = '2023-01-04'
+const DEFAULT_CIRCLECI_INTEGRATION = 'circleci-prod'
+const DEFAULT_CIRCLECI_STATUS_CHANNEL = '#security-rotations'
+
 function jsonEscapeInlineValue(value: string) {
   return JSON.stringify(value).slice(1, -1)
 }
@@ -2233,6 +2255,7 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const isTrigger = node.type === 'trigger'
   const isWebhookTrigger = isTrigger && /webhook/i.test(stepDescriptor)
   const isExitOperator = /\bexit\b/i.test(String(node.data?.label || ''))
+  const isCircleCIRotationStep = /circleci|secret rotation|environment variables|rotate secrets/i.test(stepDescriptor)
   const isMessageLikeStep = /message|slack|ticket|log/i.test(String(node.data?.label || ''))
   const isEmailStep = /gmail|email/i.test(String(node.data?.subtext || '')) || /email|gmail/i.test(String(node.data?.label || ''))
   const isDateTimeStep = /date|time|datetime|timestamp/i.test(String(node.data?.label || ''))
@@ -2254,6 +2277,11 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const [syncStatusCode, setSyncStatusCode] = useState(String(node.data?.syncStatusCode || '200'))
   const [syncHeaders, setSyncHeaders] = useState(String(node.data?.syncHeaders || '{\n  "Content-Type": "application/json"\n}'))
   const [syncBody, setSyncBody] = useState(String(node.data?.syncBody || '{\n  "result": "{{ $.print_a_message_to_stdout.output }}"\n}'))
+  const [circleciTemplateId, setCircleciTemplateId] = useState(String(node.data?.circleciTemplateId || 'global'))
+  const [circleciCreatedBeforeDate, setCircleciCreatedBeforeDate] = useState(String(node.data?.circleciCreatedBeforeDate || DEFAULT_CIRCLECI_CREATED_BEFORE))
+  const [circleciIntegrationName, setCircleciIntegrationName] = useState(String(node.data?.circleciIntegrationName || DEFAULT_CIRCLECI_INTEGRATION))
+  const [circleciStatusChannel, setCircleciStatusChannel] = useState(String(node.data?.circleciStatusChannel || DEFAULT_CIRCLECI_STATUS_CHANNEL))
+  const [circleciStatusNote, setCircleciStatusNote] = useState(String(node.data?.circleciStatusNote || ''))
   const [isHttpMode, setIsHttpMode] = useState(false)
   const [showHttpConfirm, setShowHttpConfirm] = useState(false)
   const [recipient, setRecipient] = useState(String(node.data?.recipient || ''))
@@ -2310,6 +2338,8 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
     String(currentWorkflowId || '710c5349-b617-0000-0000-e15671ca4ffb'),
   )
   const selectedTriggerInfo = TRIGGER_EXECUTION_TYPES.find((item) => item.id === triggerExecutionType) || TRIGGER_EXECUTION_TYPES[0]
+  const selectedCircleCITemplate =
+    CIRCLECI_ROTATION_TEMPLATES.find((item) => item.id === circleciTemplateId) || CIRCLECI_ROTATION_TEMPLATES[0]
   const mockOutputHasTemplate = /\{\{[\s\S]*\}\}/.test(mockOutputText)
   const mockOutputTooLarge = new Blob([mockOutputText]).size > 100 * 1024
   const mockOutputJsonValid = (() => {
@@ -2494,6 +2524,11 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
     setSyncStatusCode(String(node.data?.syncStatusCode || '200'))
     setSyncHeaders(String(node.data?.syncHeaders || '{\n  "Content-Type": "application/json"\n}'))
     setSyncBody(String(node.data?.syncBody || '{\n  "result": "{{ $.print_a_message_to_stdout.output }}"\n}'))
+    setCircleciTemplateId(String(node.data?.circleciTemplateId || 'global'))
+    setCircleciCreatedBeforeDate(String(node.data?.circleciCreatedBeforeDate || DEFAULT_CIRCLECI_CREATED_BEFORE))
+    setCircleciIntegrationName(String(node.data?.circleciIntegrationName || DEFAULT_CIRCLECI_INTEGRATION))
+    setCircleciStatusChannel(String(node.data?.circleciStatusChannel || DEFAULT_CIRCLECI_STATUS_CHANNEL))
+    setCircleciStatusNote(String(node.data?.circleciStatusNote || ''))
     setAutocomplete(null)
     setActiveField(null)
     setPickerOpenFor(null)
@@ -2736,6 +2771,109 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                   <strong style={{ color: '#e2e8f0' }}>cURL example</strong><br />
                   <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{`curl ${triggerUrls[triggerExecutionType]} -H "auth_header_name:secret" -d '{"body":[1,2,3]}'`}</span>
                 </div>
+              </>
+            ) : isCircleCIRotationStep ? (
+              <>
+                <div style={{ marginBottom: 12, color: '#9ca3af', fontSize: 12, lineHeight: 1.5 }}>
+                  Automate CircleCI secret rotation by collecting existing environment variables, classifying ownership, rotating values, and rerunning with <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>created_before_date</span> to verify completion.
+                </div>
+
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Rotation workflow template</div>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {CIRCLECI_ROTATION_TEMPLATES.map((template) => (
+                      <button
+                        key={template.id}
+                        onClick={() => {
+                          setCircleciTemplateId(template.id)
+                          persistNodeData({ circleciTemplateId: template.id })
+                        }}
+                        style={{ background: circleciTemplateId === template.id ? '#334155' : '#17191e', border: '1px solid #333842', borderRadius: 6, color: '#e2e8f0', padding: '8px 10px', textAlign: 'left', cursor: 'pointer' }}
+                      >
+                        <div style={{ fontSize: 12, fontWeight: 600 }}>{template.scope}</div>
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{template.title}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>CircleCI integration</div>
+                  <input
+                    value={circleciIntegrationName}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      setCircleciIntegrationName(value)
+                      persistNodeData({ circleciIntegrationName: value })
+                    }}
+                    placeholder="circleci-prod"
+                    style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>created_before_date</div>
+                  <input
+                    value={circleciCreatedBeforeDate}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      setCircleciCreatedBeforeDate(value)
+                      persistNodeData({ circleciCreatedBeforeDate: value })
+                    }}
+                    placeholder="YYYY-MM-DD"
+                    style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none', fontFamily: 'monospace' }}
+                  />
+                  <div style={{ marginTop: 6, color: '#94a3b8', fontSize: 11 }}>
+                    Rerun this workflow with the same value to verify all older secrets are rotated.
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Status reporting channel</div>
+                  <input
+                    value={circleciStatusChannel}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      setCircleciStatusChannel(value)
+                      persistNodeData({ circleciStatusChannel: value })
+                    }}
+                    placeholder="#security-rotations"
+                    style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.6 }}>
+                  <strong style={{ color: '#e2e8f0' }}>Rotation checklist</strong><br />
+                  1) Connect <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{circleciIntegrationName || 'circleci-prod'}</span> integration<br />
+                  2) Retrieve variables using <span style={{ color: '#e2e8f0' }}>{selectedCircleCITemplate.title}</span><br />
+                  3) Rotate secret values and update owners/status in <span style={{ color: '#e2e8f0' }}>{circleciStatusChannel || '#security-rotations'}</span><br />
+                  4) Verify by rerunning with <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>created_before_date={circleciCreatedBeforeDate || DEFAULT_CIRCLECI_CREATED_BEFORE}</span>
+                </div>
+
+                <div style={{ marginBottom: 10, display: 'flex', gap: 8 }}>
+                  <button
+                    onClick={() => {
+                      const note = `Verification rerun queued for ${circleciCreatedBeforeDate || DEFAULT_CIRCLECI_CREATED_BEFORE}`
+                      setCircleciStatusNote(note)
+                      persistNodeData({ circleciStatusNote: note })
+                    }}
+                    style={{ background: '#17191e', border: '1px solid #333842', color: '#e2e8f0', borderRadius: 6, padding: '6px 10px', fontSize: 11, cursor: 'pointer' }}
+                  >
+                    Verify Rotation Completion
+                  </button>
+                  <button
+                    onClick={() => copyText(`CircleCI rotation update: template=${selectedCircleCITemplate.id}, created_before_date=${circleciCreatedBeforeDate}, channel=${circleciStatusChannel}`)}
+                    style={{ background: '#17191e', border: '1px solid #333842', color: '#e2e8f0', borderRadius: 6, padding: '6px 10px', fontSize: 11, cursor: 'pointer' }}
+                  >
+                    Copy Status Update
+                  </button>
+                </div>
+
+                {circleciStatusNote && (
+                  <div style={{ marginBottom: 16, color: '#86efac', fontSize: 11, border: '1px solid #14532d', background: 'rgba(20,83,45,0.25)', borderRadius: 6, padding: '8px 10px' }}>
+                    {circleciStatusNote}
+                  </div>
+                )}
               </>
             ) : isExitOperator ? (
               <>
