@@ -20,6 +20,22 @@ export type WorkflowStatus =
   | 'published_enabled'
   | 'published_disabled'
   | 'has_unpublished_changes'
+  | 'under_review'
+
+export type UserRole = 'creator' | 'contributor' | 'owner'
+
+export interface WorkflowReviewRequest {
+  id: string
+  submittedAt: string
+  submittedBy: string
+  reviewers: string[]
+  versionDescription?: string
+  tags: string[]
+  timeBackMinutes?: number
+  snapshotNodes: Node[]
+  snapshotEdges: Edge[]
+  status: 'pending' | 'completed'
+}
 
 export interface WorkflowItem {
   id: string
@@ -38,6 +54,7 @@ export interface WorkflowItem {
   versions: WorkflowVersion[]
   activeExecutions: number
   executionsLast7d: number
+  reviewRequest?: WorkflowReviewRequest
 }
 
 export interface WorkflowVersion {
@@ -49,6 +66,7 @@ export interface WorkflowVersion {
   kind: 'draft' | 'published'
   nodes: Node[]
   edges: Edge[]
+  reviewState?: 'under_review'
 }
 
 interface WorkflowStore {
@@ -57,11 +75,13 @@ interface WorkflowStore {
   selectedNode: Node | null
   workflows: WorkflowItem[]
   currentWorkflowId: string | null
+  currentUserRole: UserRole
   onNodesChange: OnNodesChange
   onEdgesChange: OnEdgesChange
   onConnect: OnConnect
   setNodes: (nodes: Node[]) => void
   setEdges: (edges: Edge[]) => void
+  setCurrentUserRole: (role: UserRole) => void
   selectNode: (node: Node | null) => void
   addNode: (node: Node) => void
   createWorkflowDraft: (name?: string) => string
@@ -70,6 +90,13 @@ interface WorkflowStore {
     versionDescription?: string
     tags?: string[]
     timeBackMinutes?: number
+  }) => string | null
+  submitWorkflowForReview: (payload: {
+    workflowId: string
+    versionDescription?: string
+    tags?: string[]
+    timeBackMinutes?: number
+    reviewers?: string[]
   }) => string | null
   unpublishWorkflow: (id: string) => void
   setWorkflowTriggerEnabled: (id: string, enabled: boolean) => void
@@ -101,6 +128,10 @@ function uniqueName(baseName: string, existingNames: string[]) {
   return candidate
 }
 
+function sameGraph(nodesA: Node[], edgesA: Edge[], nodesB: Node[], edgesB: Edge[]) {
+  return JSON.stringify(nodesA) === JSON.stringify(nodesB) && JSON.stringify(edgesA) === JSON.stringify(edgesB)
+}
+
 function createVersionEntry(input: {
   name: string
   description?: string
@@ -126,6 +157,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   selectedNode: null,
   workflows: [],
   currentWorkflowId: null,
+  currentUserRole: 'creator',
 
   onNodesChange: (changes) =>
     set({ nodes: applyNodeChanges(changes, get().nodes) }),
@@ -138,6 +170,7 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
 
   setNodes: (nodes) => set({ nodes }),
   setEdges: (edges) => set({ edges }),
+  setCurrentUserRole: (role) => set({ currentUserRole: role }),
   selectNode: (node) => set({ selectedNode: node }),
 
   addNode: (node) => set({ nodes: [...get().nodes, node] }),
@@ -212,7 +245,10 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   },
 
   publishCurrentWorkflow: (payload) => {
-    const { workflows, currentWorkflowId, nodes, edges } = get()
+    const { workflows, currentWorkflowId, nodes, edges, currentUserRole } = get()
+    if (currentUserRole === 'creator') {
+      return currentWorkflowId
+    }
     if (!currentWorkflowId) {
       const createdId = get().createWorkflowDraft()
       get().publishCurrentWorkflow(payload)
@@ -221,37 +257,120 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
 
     set({
       workflows: workflows.map((workflow) =>
-        workflow.id === currentWorkflowId
-          ? {
-              ...workflow,
-              nodes,
-              edges,
-              description: workflow.description || '',
-              section: workflow.section || 'Ungrouped',
-              status: 'published_enabled',
-              updatedAt: new Date().toISOString(),
-              versionDescription:
-                payload?.versionDescription || workflow.versionDescription,
-              tags: payload?.tags ?? workflow.tags,
-              timeBackMinutes:
-                payload?.timeBackMinutes ?? workflow.timeBackMinutes,
-              publishedNodes: nodes,
-              publishedEdges: edges,
-              versions: [
-                createVersionEntry({
-                  name: payload?.versionDescription || `Published ${new Date().toLocaleString()}`,
-                  description: payload?.versionDescription,
-                  kind: 'published',
-                  nodes,
-                  edges,
-                }),
-                ...workflow.versions,
-              ],
-            }
-          : workflow,
+        workflow.id !== currentWorkflowId
+          ? workflow
+          : (() => {
+              const reviewSnapshotNodes =
+                workflow.reviewRequest?.status === 'pending'
+                  ? workflow.reviewRequest.snapshotNodes
+                  : nodes
+              const reviewSnapshotEdges =
+                workflow.reviewRequest?.status === 'pending'
+                  ? workflow.reviewRequest.snapshotEdges
+                  : edges
+
+              const hasNewDraftChanges = !sameGraph(
+                nodes,
+                edges,
+                reviewSnapshotNodes,
+                reviewSnapshotEdges,
+              )
+
+              return {
+                ...workflow,
+                nodes,
+                edges,
+                description: workflow.description || '',
+                section: workflow.section || 'Ungrouped',
+                status: hasNewDraftChanges ? 'has_unpublished_changes' : 'published_enabled',
+                updatedAt: new Date().toISOString(),
+                versionDescription:
+                  payload?.versionDescription ||
+                  workflow.reviewRequest?.versionDescription ||
+                  workflow.versionDescription,
+                tags: payload?.tags ?? workflow.reviewRequest?.tags ?? workflow.tags,
+                timeBackMinutes:
+                  payload?.timeBackMinutes ??
+                  workflow.reviewRequest?.timeBackMinutes ??
+                  workflow.timeBackMinutes,
+                publishedNodes: reviewSnapshotNodes,
+                publishedEdges: reviewSnapshotEdges,
+                reviewRequest: workflow.reviewRequest
+                  ? { ...workflow.reviewRequest, status: 'completed' }
+                  : undefined,
+                versions: [
+                  createVersionEntry({
+                    name:
+                      payload?.versionDescription ||
+                      workflow.reviewRequest?.versionDescription ||
+                      `Published ${new Date().toLocaleString()}`,
+                    description:
+                      payload?.versionDescription || workflow.reviewRequest?.versionDescription,
+                    kind: 'published',
+                    nodes: reviewSnapshotNodes,
+                    edges: reviewSnapshotEdges,
+                  }),
+                  ...workflow.versions,
+                ],
+              }
+            })(),
       ),
     })
     return currentWorkflowId
+  },
+
+  submitWorkflowForReview: (payload) => {
+    const { workflows, nodes, edges, currentWorkflowId } = get()
+
+    const workflow = workflows.find((item) => item.id === payload.workflowId)
+    if (!workflow) return null
+
+    const sourceNodes = currentWorkflowId === payload.workflowId ? nodes : workflow.nodes
+    const sourceEdges = currentWorkflowId === payload.workflowId ? edges : workflow.edges
+
+    const reviewRequest: WorkflowReviewRequest = {
+      id: `review-${Date.now()}`,
+      submittedAt: new Date().toISOString(),
+      submittedBy: 'You',
+      reviewers: payload.reviewers || [],
+      versionDescription: payload.versionDescription,
+      tags: payload.tags || workflow.tags,
+      timeBackMinutes: payload.timeBackMinutes,
+      snapshotNodes: sourceNodes,
+      snapshotEdges: sourceEdges,
+      status: 'pending',
+    }
+
+    set({
+      workflows: workflows.map((item) =>
+        item.id !== payload.workflowId
+          ? item
+          : {
+              ...item,
+              status: 'under_review',
+              updatedAt: new Date().toISOString(),
+              versionDescription: payload.versionDescription || item.versionDescription,
+              tags: payload.tags || item.tags,
+              timeBackMinutes: payload.timeBackMinutes ?? item.timeBackMinutes,
+              reviewRequest,
+              versions: [
+                {
+                  ...createVersionEntry({
+                    name: 'Under review version',
+                    description: payload.versionDescription,
+                    kind: 'draft',
+                    nodes: sourceNodes,
+                    edges: sourceEdges,
+                  }),
+                  reviewState: 'under_review',
+                },
+                ...item.versions,
+              ],
+            },
+      ),
+    })
+
+    return payload.workflowId
   },
 
   unpublishWorkflow: (id) => {

@@ -11,6 +11,7 @@ function getWorkflowStatusLabel(status: string) {
   if (status === 'published_enabled') return 'Published, trigger enabled'
   if (status === 'published_disabled') return 'Published, trigger disabled'
   if (status === 'has_unpublished_changes') return 'Has unpublished changes'
+  if (status === 'under_review') return 'Under review'
   return 'Not published'
 }
 
@@ -23,6 +24,9 @@ function getWorkflowStatusColors(status: string) {
   }
   if (status === 'has_unpublished_changes') {
     return { bg: 'rgba(59,130,246,0.12)', color: '#60a5fa', border: 'rgba(59,130,246,0.28)' }
+  }
+  if (status === 'under_review') {
+    return { bg: 'rgba(234,179,8,0.12)', color: '#facc15', border: 'rgba(234,179,8,0.28)' }
   }
   return { bg: 'rgba(148,163,184,0.12)', color: '#cbd5e1', border: 'rgba(148,163,184,0.25)' }
 }
@@ -48,6 +52,7 @@ export function WorkflowsPage() {
     exportWorkflowYaml,
     importWorkflowYaml,
     stopWorkflowExecutions,
+    currentUserRole,
   } = useWorkflowStore()
 
   const downloadYaml = (filename: string, content: string) => {
@@ -94,10 +99,10 @@ export function WorkflowsPage() {
   const filtered = workflows
     .filter((workflow) => {
       if (tab === 'published') {
-        return ['published_enabled', 'published_disabled', 'has_unpublished_changes'].includes(workflow.status)
+        return ['published_enabled', 'published_disabled', 'has_unpublished_changes', 'under_review'].includes(workflow.status)
       }
       if (tab === 'testing') {
-        return ['published_disabled', 'has_unpublished_changes'].includes(workflow.status)
+        return ['published_disabled', 'has_unpublished_changes', 'under_review'].includes(workflow.status)
       }
       if (tab === 'drafts') {
         return workflow.status === 'not_published'
@@ -113,8 +118,8 @@ export function WorkflowsPage() {
 
   const tabCounts = {
     all: workflows.length,
-    published: workflows.filter((workflow) => ['published_enabled', 'published_disabled', 'has_unpublished_changes'].includes(workflow.status)).length,
-    testing: workflows.filter((workflow) => ['published_disabled', 'has_unpublished_changes'].includes(workflow.status)).length,
+    published: workflows.filter((workflow) => ['published_enabled', 'published_disabled', 'has_unpublished_changes', 'under_review'].includes(workflow.status)).length,
+    testing: workflows.filter((workflow) => ['published_disabled', 'has_unpublished_changes', 'under_review'].includes(workflow.status)).length,
     drafts: workflows.filter((workflow) => workflow.status === 'not_published').length,
   }
 
@@ -229,7 +234,7 @@ export function WorkflowsPage() {
                     Open
                   </button>
 
-                  {(workflow.status === 'not_published' || workflow.status === 'has_unpublished_changes') && (
+                  {(workflow.status === 'not_published' || workflow.status === 'has_unpublished_changes') && currentUserRole !== 'creator' && (
                     <button
                       className="btn btn-primary"
                       onClick={() => {
@@ -238,6 +243,18 @@ export function WorkflowsPage() {
                       }}
                     >
                       Publish
+                    </button>
+                  )}
+
+                  {workflow.status === 'under_review' && currentUserRole !== 'creator' && (
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => {
+                        openWorkflowInCanvas(workflow.id)
+                        publishCurrentWorkflow()
+                      }}
+                    >
+                      Approve & Publish
                     </button>
                   )}
 
