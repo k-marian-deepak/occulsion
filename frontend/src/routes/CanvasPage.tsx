@@ -41,6 +41,58 @@ function compareVersions(selected: WorkflowVersion, previous?: WorkflowVersion |
   }
 }
 
+type WorkflowRunEntry = {
+  id: string
+  timestamp: number
+  durationText: string
+  status: 'success' | 'failed'
+  mode: 'test' | 'production'
+  source: 'mock-output' | 'selected-step' | 'resend-event' | 'sync-execution' | 'async-execution'
+  executedBy: string
+  nodeLabel?: string
+}
+
+const TEST_TRIGGER_EVENTS = [
+  { id: 'evt-1', label: 'Previous trigger event - Email phishing alert' },
+  { id: 'evt-2', label: 'Previous trigger event - Suspicious login' },
+  { id: 'evt-3', label: 'Previous trigger event - Endpoint malware detection' },
+]
+
+const RUN_SOURCE_LABEL: Record<WorkflowRunEntry['source'], string> = {
+  'mock-output': 'Mock outputs',
+  'selected-step': 'From selected step',
+  'resend-event': 'Resend event',
+  'sync-execution': 'Sync execution',
+  'async-execution': 'Async execution',
+}
+
+function formatRunTimestamp(timestamp: number) {
+  const d = new Date(timestamp)
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const startOfYesterday = startOfToday - 24 * 60 * 60 * 1000
+
+  if (timestamp >= startOfToday) {
+    return `Today at ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+  }
+
+  if (timestamp >= startOfYesterday) {
+    return `Yesterday at ${d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+  }
+
+  return d.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+}
+
+function buildRunEntry(partial: Omit<WorkflowRunEntry, 'id' | 'timestamp' | 'durationText' | 'status'>): WorkflowRunEntry {
+  return {
+    id: `AB-${Math.floor(100000 + Math.random() * 899999)}`,
+    timestamp: Date.now(),
+    durationText: `${Math.floor(5 + Math.random() * 70)}s`,
+    status: 'success',
+    ...partial,
+  }
+}
+
 export function CanvasPage() {
   const {
     setNodes,
@@ -83,6 +135,42 @@ export function CanvasPage() {
   const [versionDescription, setVersionDescription] = useState('')
   const [tags, setTags] = useState('')
   const [timeBackMinutes, setTimeBackMinutes] = useState(20)
+  const [testRunMenuOpen, setTestRunMenuOpen] = useState(false)
+  const [productionExecMenuOpen, setProductionExecMenuOpen] = useState(false)
+  const [selectedTriggerEventId, setSelectedTriggerEventId] = useState(TEST_TRIGGER_EVENTS[0].id)
+  const [activeRunId, setActiveRunId] = useState<string | null>(null)
+  const [runLogEntries, setRunLogEntries] = useState<WorkflowRunEntry[]>([
+    {
+      id: 'AB-442280',
+      timestamp: Date.now() - 2 * 60 * 60 * 1000,
+      durationText: '1s',
+      status: 'success',
+      mode: 'test',
+      source: 'mock-output',
+      executedBy: 'User',
+      nodeLabel: 'If user provided values',
+    },
+    {
+      id: 'AB-442279',
+      timestamp: Date.now() - 5 * 60 * 60 * 1000,
+      durationText: '9s',
+      status: 'success',
+      mode: 'production',
+      source: 'async-execution',
+      executedBy: 'System',
+      nodeLabel: 'Get More Info',
+    },
+    {
+      id: 'AB-442172',
+      timestamp: Date.now() - 25 * 60 * 60 * 1000,
+      durationText: '10s',
+      status: 'success',
+      mode: 'production',
+      source: 'resend-event',
+      executedBy: 'Owner',
+      nodeLabel: 'Notify docs of form timeout',
+    },
+  ])
 
   const previewBackupRef = useRef<{ nodes: any[]; edges: any[] } | null>(null)
   const fitViewForPrintRef = useRef<(() => void) | null>(null)
@@ -276,6 +364,56 @@ export function CanvasPage() {
     navigate('/cases')
   }
 
+  const appendRunLogEntry = (entry: WorkflowRunEntry) => {
+    const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000
+    setRunLogEntries((prev) => {
+      const next = [entry, ...prev].filter((item) => item.timestamp >= sevenDaysAgo)
+      return next.slice(0, 30)
+    })
+    setActiveRunId(entry.id)
+    setViewMode('runlog')
+  }
+
+  const handleTestRun = (source: 'mock-output' | 'selected-step') => {
+    if (source === 'selected-step' && !selectedNode) {
+      window.alert('Select a step before running from selected step.')
+      return
+    }
+
+    const workflowId = saveDraft()
+    if (workflowId) {
+      runWorkflowExecution(workflowId)
+    }
+
+    const selectedEvent = TEST_TRIGGER_EVENTS.find((item) => item.id === selectedTriggerEventId)
+    const entry = buildRunEntry({
+      mode: 'test',
+      source,
+      executedBy: 'Tester',
+      nodeLabel: source === 'selected-step' ? String(selectedNode?.data?.label || 'Selected step') : selectedEvent?.label,
+    })
+    appendRunLogEntry(entry)
+    setTestRunMenuOpen(false)
+  }
+
+  const handleProductionExecution = (source: 'resend-event' | 'sync-execution' | 'async-execution') => {
+    if (!currentWorkflow || currentWorkflow.status === 'not_published') {
+      window.alert('Publish the workflow before running production execution options.')
+      return
+    }
+
+    runWorkflowExecution(currentWorkflow.id)
+
+    const entry = buildRunEntry({
+      mode: 'production',
+      source,
+      executedBy: 'Owner',
+      nodeLabel: String(selectedNode?.data?.label || currentWorkflow.name),
+    })
+    appendRunLogEntry(entry)
+    setProductionExecMenuOpen(false)
+  }
+
   const addAnnotationAtPosition = (position: { x: number; y: number }) => {
     const annotationNode = {
       id: `annotation-${Date.now()}`,
@@ -340,6 +478,22 @@ export function CanvasPage() {
     a.n.toLowerCase().includes(search.toLowerCase()) ||
     a.cat.toLowerCase().includes(search.toLowerCase())
   )
+
+  const todayRuns = runLogEntries.filter((item) => {
+    const startOfToday = new Date(new Date().setHours(0, 0, 0, 0)).getTime()
+    return item.timestamp >= startOfToday
+  })
+
+  const yesterdayRuns = runLogEntries.filter((item) => {
+    const startOfToday = new Date(new Date().setHours(0, 0, 0, 0)).getTime()
+    const startOfYesterday = startOfToday - 24 * 60 * 60 * 1000
+    return item.timestamp >= startOfYesterday && item.timestamp < startOfToday
+  })
+
+  const lastWeekRuns = runLogEntries.filter((item) => {
+    const startOfYesterday = new Date(new Date().setHours(0, 0, 0, 0)).getTime() - 24 * 60 * 60 * 1000
+    return item.timestamp < startOfYesterday
+  })
 
   return (
     <div className="workflow-canvas-page" style={{ display: 'flex', height: '100vh', width: '100%', background: '#0e1015', overflow: 'hidden' }}>
@@ -435,44 +589,42 @@ export function CanvasPage() {
         ) : (
           <div key="runlog" className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
             <div style={{ padding: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: '#fff', fontSize: 14, fontWeight: 600 }}>
-              Today <RefreshCcw size={14} color="#9ca3af" style={{cursor: 'pointer'}} />
+              Run Log (last 7 days, max 30) <RefreshCcw size={14} color="#9ca3af" style={{cursor: 'pointer'}} />
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', overflowY: 'auto', flex: 1, paddingBottom: 24 }}>
               {[
-                { time: 'Today at 1:03 PM', dur: '5m 28s', id: 'AA-021493', status: '#22c55e', img: 'Bob' },
-                { time: 'Today at 6:55 AM', dur: '1m 5s', id: 'AA-021413', status: '#22c55e', img: 'Alice' },
-                { time: 'Today at 3:56 AM', dur: '1m 15s', id: 'AA-021282', status: '#22c55e', img: 'Charlie' },
-                { time: 'Today at 12:03 AM', dur: '1m 4s', id: 'AA-020999', status: '#22c55e', initial: 'S' },
-              ].map(r => (
-                <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '4px 1fr auto', padding: '12px 20px', alignItems: 'center', cursor: 'pointer', background: r.id === 'AA-021493' ? '#2a2e35' : 'transparent', borderBottom: '1px solid #2a2e35' }}>
-                  <div style={{ width: 4, height: 24, background: r.status, borderRadius: 2 }} />
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingLeft: 12 }}>
-                    <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 500 }}>{r.time}</div>
-                    <div style={{ color: '#9ca3af', fontSize: 12 }}>Duration: {r.dur}</div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                    {r.img ? <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${r.img}`} width={24} height={24} style={{ borderRadius: '50%', background: '#333842' }} alt="" /> : <div style={{width: 24, height: 24, background: '#3b82f6', borderRadius: '50%', color: '#fff', fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold'}}>{r.initial}</div>}
-                    <div style={{ color: '#9ca3af', fontSize: 13 }}>{r.id}</div>
-                  </div>
-                </div>
-              ))}
-              
-              <div style={{ padding: '20px 20px 12px', color: '#fff', fontSize: 14, fontWeight: 600, marginTop: 8 }}>Last 7 days</div>
-               {[
-                { time: 'Sep 16 2024, 9:27 AM', dur: '1m 3s', id: 'AA-020855', status: '#22c55e', img: 'Alice' },
-                { time: 'Sep 16 2024, 3:29 AM', dur: '1m 10s', id: 'AA-020803', status: '#22c55e', img: 'Alice' },
-                { time: 'Sep 11 2024, 6:11 AM', dur: '1m 11s', id: 'AA-020655', status: '#22c55e', initial: 'S' },
-              ].map(r => (
-                <div key={r.id} style={{ display: 'grid', gridTemplateColumns: '4px 1fr auto', padding: '12px 20px', alignItems: 'center', cursor: 'pointer', borderBottom: '1px solid #2a2e35' }}>
-                  <div style={{ width: 4, height: 24, background: r.status, borderRadius: 2 }} />
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingLeft: 12 }}>
-                    <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 500 }}>{r.time}</div>
-                    <div style={{ color: '#9ca3af', fontSize: 12 }}>Duration: {r.dur}</div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                    {r.img ? <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${r.img}`} width={24} height={24} style={{ borderRadius: '50%', background: '#333842' }} alt="" /> : <div style={{width: 24, height: 24, background: '#3b82f6', borderRadius: '50%', color: '#fff', fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold'}}>{r.initial}</div>}
-                    <div style={{ color: '#9ca3af', fontSize: 13 }}>{r.id}</div>
-                  </div>
+                { title: 'Today', entries: todayRuns },
+                { title: 'Yesterday', entries: yesterdayRuns },
+                { title: 'Last 7 days', entries: lastWeekRuns },
+              ].map((section) => (
+                <div key={section.title}>
+                  <div style={{ padding: '20px 20px 12px', color: '#fff', fontSize: 14, fontWeight: 600, marginTop: 4 }}>{section.title}</div>
+                  {section.entries.length === 0 ? (
+                    <div style={{ color: '#6b7280', fontSize: 12, padding: '0 20px 14px' }}>No executions</div>
+                  ) : (
+                    section.entries.map((r) => (
+                      <div
+                        key={r.id}
+                        onClick={() => setActiveRunId(r.id)}
+                        style={{ display: 'grid', gridTemplateColumns: '4px 1fr auto', padding: '12px 20px', alignItems: 'center', cursor: 'pointer', background: r.id === activeRunId ? '#2a2e35' : 'transparent', borderBottom: '1px solid #2a2e35' }}
+                      >
+                        <div style={{ width: 4, height: 24, background: r.status === 'success' ? '#22c55e' : '#ef4444', borderRadius: 2 }} />
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, paddingLeft: 12 }}>
+                          <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 500 }}>{formatRunTimestamp(r.timestamp)}</div>
+                          <div style={{ color: '#9ca3af', fontSize: 12 }}>Duration: {r.durationText}</div>
+                          <div style={{ color: '#94a3b8', fontSize: 11, display: 'flex', gap: 8 }}>
+                            <span>{r.mode === 'test' ? 'Test run' : 'Production run'}</span>
+                            <span>•</span>
+                            <span>{RUN_SOURCE_LABEL[r.source]}</span>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                          <div style={{ color: '#9ca3af', fontSize: 13 }}>{r.id}</div>
+                          <div style={{ color: '#64748b', fontSize: 11 }}>{r.executedBy}</div>
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               ))}
             </div>
@@ -523,6 +675,46 @@ export function CanvasPage() {
                   <button onClick={saveDraft} style={{ background: 'transparent', color: '#fff', border: '1px solid #4b5563', borderRadius: 6, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
                     <i className="fa-regular fa-floppy-disk" style={{ fontSize: 12, marginRight: 6 }} /> Save
                   </button>
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center', borderRadius: 6, overflow: 'hidden', border: '1px solid #4b5563' }}>
+                    <button
+                      onClick={() => handleTestRun('mock-output')}
+                      style={{ background: '#1c1e23', color: '#fff', border: 'none', padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+                    >
+                      <i className="fa-solid fa-play" style={{ fontSize: 11, marginRight: 6 }} /> Test Run
+                    </button>
+                    <button
+                      onClick={() => setTestRunMenuOpen((prev) => !prev)}
+                      style={{ background: '#1c1e23', color: '#fff', border: 'none', borderLeft: '1px solid #4b5563', padding: '8px 10px', cursor: 'pointer' }}
+                    >
+                      <ChevronDown size={13} />
+                    </button>
+                    {testRunMenuOpen && (
+                      <div style={{ position: 'absolute', top: 42, right: 0, width: 280, background: '#252830', border: '1px solid #333842', borderRadius: 8, boxShadow: '0 16px 40px rgba(0,0,0,0.5)', zIndex: 40, padding: 10 }}>
+                        <div style={{ color: '#9ca3af', fontSize: 11, marginBottom: 8 }}>Use previous trigger event</div>
+                        <select
+                          value={selectedTriggerEventId}
+                          onChange={(event) => setSelectedTriggerEventId(event.target.value)}
+                          style={{ width: '100%', marginBottom: 10, background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '8px 10px', color: '#e2e8f0', fontSize: 12 }}
+                        >
+                          {TEST_TRIGGER_EVENTS.map((event) => (
+                            <option key={event.id} value={event.id}>{event.label}</option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => handleTestRun('mock-output')}
+                          style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '9px 8px', cursor: 'pointer', fontSize: 12 }}
+                        >
+                          <i className="fa-regular fa-square-check" style={{ marginRight: 8 }} /> Test run with mock output
+                        </button>
+                        <button
+                          onClick={() => handleTestRun('selected-step')}
+                          style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '9px 8px', cursor: 'pointer', fontSize: 12 }}
+                        >
+                          <i className="fa-solid fa-location-arrow" style={{ marginRight: 8 }} /> Test run from selected step
+                        </button>
+                      </div>
+                    )}
+                  </div>
                   <div style={{ display: 'flex', alignItems: 'center', borderRadius: 6, overflow: 'hidden', border: '1px solid #4b5563' }}>
                     <button
                       onClick={() => {
@@ -560,9 +752,37 @@ export function CanvasPage() {
                       </div>
                     )}
                   </div>
-                  <button onClick={handleRunWorkflow} style={{ background: '#7b40f0', color: '#fff', border: 'none', borderRadius: 6, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, boxShadow: '0 4px 12px rgba(123, 64, 240, 0.3)' }}>
-                    <i className="fa-solid fa-play" style={{ fontSize: 12 }} /> Save & Run Workflow
-                  </button>
+                  <div style={{ position: 'relative' }}>
+                    <button
+                      onClick={() => setProductionExecMenuOpen((prev) => !prev)}
+                      style={{ background: '#7b40f0', color: '#fff', border: 'none', borderRadius: 6, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, boxShadow: '0 4px 12px rgba(123, 64, 240, 0.3)' }}
+                    >
+                      <i className="fa-solid fa-bolt" style={{ fontSize: 12 }} /> Production
+                      <ChevronDown size={13} />
+                    </button>
+                    {productionExecMenuOpen && (
+                      <div style={{ position: 'absolute', top: 42, right: 0, width: 250, background: '#252830', border: '1px solid #333842', borderRadius: 8, boxShadow: '0 16px 40px rgba(0,0,0,0.5)', zIndex: 40 }}>
+                        <button
+                          onClick={() => handleProductionExecution('resend-event')}
+                          style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '10px 12px', cursor: 'pointer' }}
+                        >
+                          <i className="fa-solid fa-rotate-right" style={{ marginRight: 8 }} /> Resend event
+                        </button>
+                        <button
+                          onClick={() => handleProductionExecution('sync-execution')}
+                          style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '10px 12px', cursor: 'pointer' }}
+                        >
+                          <i className="fa-solid fa-link" style={{ marginRight: 8 }} /> Sync trigger execution
+                        </button>
+                        <button
+                          onClick={() => handleProductionExecution('async-execution')}
+                          style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '10px 12px', cursor: 'pointer' }}
+                        >
+                          <i className="fa-solid fa-share-nodes" style={{ marginRight: 8 }} /> Async trigger execution
+                        </button>
+                      </div>
+                    )}
+                  </div>
                   <div style={{ position: 'relative' }}>
                     <button onClick={() => setActionsOpen((prev) => !prev)} style={{ background: 'transparent', color: '#e2e8f0', border: '1px solid #4b5563', borderRadius: 6, padding: '8px 12px', fontSize: 13, cursor: 'pointer' }}>
                       <MoreHorizontal size={16} />
