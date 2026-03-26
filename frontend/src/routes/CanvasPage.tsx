@@ -1081,6 +1081,8 @@ const WORKFLOW_CONTEXT_PATHS = [
   { path: '$.secrets', group: 'Secrets', description: 'Secrets root' },
   { path: '$.secrets.<secret_key>', group: 'Secrets', description: 'Specific secret by key' },
   { path: '$.extract_urls_from_email.results', group: 'Step Outputs', description: 'Output from prior step' },
+  { path: '$.raw_data.output', group: 'Step Outputs', description: 'Raw data step output' },
+  { path: '$.escaped_string.output', group: 'Step Outputs', description: 'Escaped string step output' },
   { path: '$.metadata.account_id', group: 'Metadata', description: 'Workspace ID' },
   { path: '$.metadata.account_name', group: 'Metadata', description: 'Workspace name' },
   { path: '$.metadata.event_id', group: 'Metadata', description: 'Trigger event ID' },
@@ -1125,6 +1127,15 @@ function buildContextToken(path: string) {
 
 const DEFAULT_RAW_DATA_INPUT = '"\nan\nexample\n"'
 const DEFAULT_ADD_TO_JSON_INPUT = '{"data":"{{ jsonescape $.raw_data.output }}"}'
+const DEFAULT_ESCAPE_JSON_INPUT = '{{ $.raw_data.output }}'
+const DEFAULT_PYTHON_INPUT = '{{ jsonescape $.raw_data.output }}'
+const DEFAULT_PYTHON_SCRIPT = [
+  'import json',
+  '',
+  'raw_text = "{{ jsonescape $.raw_data.output }}"',
+  'payload = {"raw_data": raw_text}',
+  'print(json.dumps(payload))',
+].join('\n')
 
 function jsonEscapeInlineValue(value: string) {
   return JSON.stringify(value).slice(1, -1)
@@ -1162,6 +1173,8 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const isMessageLikeStep = /message|slack|ticket|log/i.test(String(node.data?.label || ''))
   const isRawDataStep = /raw data/i.test(String(node.data?.label || ''))
   const isAddToJsonStep = /add to json/i.test(String(node.data?.label || ''))
+  const isEscapeJsonStep = /escape json|string utils|escaped string/i.test(String(node.data?.label || ''))
+  const isPythonStep = /python/i.test(String(node.data?.label || ''))
   const { nodes, edges, setNodes, setEdges, selectNode, persistCurrentWorkflowGraph } = useWorkflowStore()
   const [isHttpMode, setIsHttpMode] = useState(false)
   const [showHttpConfirm, setShowHttpConfirm] = useState(false)
@@ -1169,6 +1182,9 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const [messageText, setMessageText] = useState(String(node.data?.messageText || ''))
   const [rawDataInput, setRawDataInput] = useState(String(node.data?.rawDataInput || DEFAULT_RAW_DATA_INPUT))
   const [addJsonInput, setAddJsonInput] = useState(String(node.data?.addJsonInput || DEFAULT_ADD_TO_JSON_INPUT))
+  const [escapeJsonInput, setEscapeJsonInput] = useState(String(node.data?.escapeJsonInput || DEFAULT_ESCAPE_JSON_INPUT))
+  const [pythonInput, setPythonInput] = useState(String(node.data?.pythonInput || DEFAULT_PYTHON_INPUT))
+  const [pythonScript, setPythonScript] = useState(String(node.data?.pythonScript || DEFAULT_PYTHON_SCRIPT))
   const [activeField, setActiveField] = useState<'recipient' | 'message' | 'addjson' | null>(null)
   const [pickerOpenFor, setPickerOpenFor] = useState<'recipient' | 'message' | 'addjson' | null>(null)
   const [autocomplete, setAutocomplete] = useState<{
@@ -1282,6 +1298,9 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
     setMessageText(String(node.data?.messageText || ''))
     setRawDataInput(String(node.data?.rawDataInput || DEFAULT_RAW_DATA_INPUT))
     setAddJsonInput(String(node.data?.addJsonInput || DEFAULT_ADD_TO_JSON_INPUT))
+    setEscapeJsonInput(String(node.data?.escapeJsonInput || DEFAULT_ESCAPE_JSON_INPUT))
+    setPythonInput(String(node.data?.pythonInput || DEFAULT_PYTHON_INPUT))
+    setPythonScript(String(node.data?.pythonScript || DEFAULT_PYTHON_SCRIPT))
     setAutocomplete(null)
     setActiveField(null)
     setPickerOpenFor(null)
@@ -1727,6 +1746,75 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                     </>
                   )
                 })()}
+              </>
+            ) : isEscapeJsonStep ? (
+              <>
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>String to escape</div>
+                  <textarea
+                    value={escapeJsonInput}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      setEscapeJsonInput(value)
+                      persistNodeData({ escapeJsonInput: value })
+                    }}
+                    style={{ width: '100%', minHeight: 120, background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Escaped output preview</div>
+                  <div style={{ width: '100%', minHeight: 90, background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
+                    {jsonEscapeInlineValue(escapeJsonInput)}
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.5 }}>
+                  Use this step output in downstream steps, or apply inline helper directly: <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ jsonescape $.raw_data.output }}'}</span>
+                </div>
+              </>
+            ) : isPythonStep ? (
+              <>
+                <div style={{ marginBottom: 16, position: 'relative' }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span>Workflow JSON input</span>
+                    <button
+                      onClick={() => {
+                        setPythonInput(DEFAULT_PYTHON_INPUT)
+                        persistNodeData({ pythonInput: DEFAULT_PYTHON_INPUT })
+                      }}
+                      style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}
+                    >
+                      <i className="fa-solid fa-wand-magic-sparkles" /> Insert jsonescape
+                    </button>
+                  </div>
+                  <textarea
+                    value={pythonInput}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      setPythonInput(value)
+                      persistNodeData({ pythonInput: value })
+                    }}
+                    style={{ width: '100%', minHeight: 80, background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Python script</div>
+                  <textarea
+                    value={pythonScript}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      setPythonScript(value)
+                      persistNodeData({ pythonScript: value })
+                    }}
+                    style={{ width: '100%', minHeight: 180, background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.5 }}>
+                  Escaping JSON protects script input integrity and helps prevent malformed payloads. Recommended: <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ jsonescape $.raw_data.output }}'}</span>
+                </div>
               </>
             ) : (
               <>
