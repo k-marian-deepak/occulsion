@@ -131,6 +131,7 @@ interface WorkflowStore {
   }) => string | null
   unpublishWorkflow: (id: string) => void
   setWorkflowTriggerEnabled: (id: string, enabled: boolean) => void
+  updateWorkflowTags: (id: string, tags: string[]) => void
   runWorkflowExecution: (id: string) => void
   registerWorkflowFailure: (payload: {
     workflowId: string
@@ -438,6 +439,20 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
           ? {
               ...workflow,
               status: enabled ? 'published_enabled' : 'published_disabled',
+              updatedAt: new Date().toISOString(),
+            }
+          : workflow,
+      ),
+    })
+  },
+
+  updateWorkflowTags: (id, tags) => {
+    set({
+      workflows: get().workflows.map((workflow) =>
+        workflow.id === id
+          ? {
+              ...workflow,
+              tags,
               updatedAt: new Date().toISOString(),
             }
           : workflow,
