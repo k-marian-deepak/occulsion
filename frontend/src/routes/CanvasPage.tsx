@@ -1,5 +1,5 @@
 import { WorkflowCanvas } from '@/components/canvas/WorkflowCanvas'
-import { useWorkflowStore } from '@/stores/workflowStore'
+import { type WorkflowVersion, useWorkflowStore } from '@/stores/workflowStore'
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { DB, getIntegrationLogo } from '@/data/integrations'
@@ -7,10 +7,46 @@ import { ReactFlowProvider, useReactFlow, Panel } from '@xyflow/react'
 import { Search, ChevronDown, X, Copy, Trash2, MoreHorizontal, RotateCcw, ArrowRightLeft, Wand2, Settings, Plus, Check, ArrowLeft, Save, RefreshCcw } from 'lucide-react'
 import { useCasesStore } from '@/stores/casesStore'
 
+function nodeSignature(node: any) {
+  const { __diffType, ...restData } = node.data || {}
+  return JSON.stringify({
+    type: node.type,
+    position: node.position,
+    data: restData,
+  })
+}
+
+function compareVersions(selected: WorkflowVersion, previous?: WorkflowVersion | null) {
+  const previousById = new Map((previous?.nodes || []).map((node) => [node.id, node]))
+  const decoratedNodes = selected.nodes.map((node: any) => {
+    const prev = previousById.get(node.id)
+    if (!prev) {
+      return { ...node, data: { ...node.data, __diffType: 'added' } }
+    }
+
+    previousById.delete(node.id)
+    if (nodeSignature(prev) !== nodeSignature(node)) {
+      return { ...node, data: { ...node.data, __diffType: 'modified' } }
+    }
+
+    const { __diffType, ...restData } = node.data || {}
+    return { ...node, data: restData }
+  })
+
+  const deletedNodes = Array.from(previousById.values()).map((node: any) => node.data?.label || node.id)
+
+  return {
+    nodes: decoratedNodes,
+    deletedNodes,
+  }
+}
+
 export function CanvasPage() {
   const {
     setNodes,
     setEdges,
+    nodes,
+    edges,
     addNode,
     selectedNode,
     currentWorkflowId,
@@ -19,6 +55,9 @@ export function CanvasPage() {
     publishCurrentWorkflow,
     exportWorkflowYaml,
     unpublishWorkflow,
+    renameWorkflowVersion,
+    restoreWorkflowVersion,
+    saveWorkflowVersionAsWorkflow,
   } = useWorkflowStore()
   const location = useLocation()
   const navigate = useNavigate()
@@ -28,9 +67,15 @@ export function CanvasPage() {
   const [editingStep, setEditingStep] = useState<any | null>(null)
   const [publishOpen, setPublishOpen] = useState(false)
   const [actionsOpen, setActionsOpen] = useState(false)
+  const [versionHistoryOpen, setVersionHistoryOpen] = useState(false)
+  const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null)
+  const [deletedNodes, setDeletedNodes] = useState<string[]>([])
+  const [versionMenuId, setVersionMenuId] = useState<string | null>(null)
   const [versionDescription, setVersionDescription] = useState('')
   const [tags, setTags] = useState('')
   const [timeBackMinutes, setTimeBackMinutes] = useState(20)
+
+  const previewBackupRef = useRef<{ nodes: any[]; edges: any[] } | null>(null)
 
   const currentWorkflow = workflows.find((item) => item.id === currentWorkflowId)
 
@@ -45,6 +90,76 @@ export function CanvasPage() {
 
   const saveDraft = () => {
     saveCurrentWorkflowDraft(currentWorkflow?.name || 'Untitled workflow')
+  }
+
+  const openVersionHistory = () => {
+    const workflowId = currentWorkflowId || saveCurrentWorkflowDraft('Untitled workflow')
+    const workflow = useWorkflowStore.getState().workflows.find((item) => item.id === workflowId)
+    if (!workflow || workflow.versions.length === 0) return
+
+    if (!previewBackupRef.current) {
+      previewBackupRef.current = { nodes, edges }
+    }
+
+    const latest = workflow.versions[0]
+    const previous = workflow.versions[1]
+    const compared = compareVersions(latest, previous)
+    setNodes(compared.nodes as any)
+    setEdges(latest.edges as any)
+    setDeletedNodes(compared.deletedNodes)
+    setSelectedVersionId(latest.id)
+    setVersionHistoryOpen(true)
+    setActionsOpen(false)
+  }
+
+  const closeVersionHistory = () => {
+    const backup = previewBackupRef.current
+    if (backup) {
+      setNodes(backup.nodes as any)
+      setEdges(backup.edges as any)
+    } else if (currentWorkflow) {
+      setNodes(currentWorkflow.nodes as any)
+      setEdges(currentWorkflow.edges as any)
+    }
+
+    previewBackupRef.current = null
+    setVersionHistoryOpen(false)
+    setVersionMenuId(null)
+    setDeletedNodes([])
+  }
+
+  const selectVersionPreview = (versionId: string) => {
+    if (!currentWorkflow) return
+    const index = currentWorkflow.versions.findIndex((item) => item.id === versionId)
+    if (index < 0) return
+    const selected = currentWorkflow.versions[index]
+    const previous = currentWorkflow.versions[index + 1]
+    const compared = compareVersions(selected, previous)
+    setNodes(compared.nodes as any)
+    setEdges(selected.edges as any)
+    setDeletedNodes(compared.deletedNodes)
+    setSelectedVersionId(versionId)
+  }
+
+  const handleRenameVersion = (versionId: string) => {
+    if (!currentWorkflow) return
+    const value = window.prompt('Rename version')
+    if (!value) return
+    renameWorkflowVersion(currentWorkflow.id, versionId, value)
+    setVersionMenuId(null)
+  }
+
+  const handleSaveVersionAsWorkflow = (versionId: string) => {
+    if (!currentWorkflow) return
+    saveWorkflowVersionAsWorkflow(currentWorkflow.id, versionId)
+    setVersionMenuId(null)
+  }
+
+  const handleRestoreVersion = (versionId: string) => {
+    if (!currentWorkflow) return
+    restoreWorkflowVersion(currentWorkflow.id, versionId)
+    setVersionMenuId(null)
+    closeVersionHistory()
   }
 
   const downloadYaml = (filename: string, content: string) => {
@@ -314,6 +429,12 @@ export function CanvasPage() {
                         <button onClick={() => handleExport(true)} style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '10px 12px', cursor: 'pointer' }}>
                           <i className="fa-solid fa-arrow-up-from-bracket" style={{ marginRight: 8 }} /> Export published
                         </button>
+                        <button
+                          onClick={openVersionHistory}
+                          style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '10px 12px', cursor: 'pointer' }}
+                        >
+                          <i className="fa-solid fa-clock-rotate-left" style={{ marginRight: 8 }} /> Version History
+                        </button>
                         {currentWorkflow && currentWorkflow.status !== 'not_published' && (
                           <button
                             onClick={() => {
@@ -347,6 +468,54 @@ export function CanvasPage() {
 
       {editingStep && (
         <StepBuilder node={editingStep} onClose={() => setEditingStep(null)} />
+      )}
+
+      {versionHistoryOpen && currentWorkflow && (
+        <div style={{ position: 'fixed', top: 84, left: 86, bottom: 18, width: 420, background: '#2a2e35', border: '1px solid #4b5563', borderRadius: 10, zIndex: 900, display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
+          <div style={{ padding: '18px 16px 8px', borderBottom: '1px solid #4b5563', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ color: '#fff', fontSize: 28, fontWeight: 700 }}>Version history</div>
+            <button onClick={closeVersionHistory} style={{ background: 'none', border: 'none', color: '#e2e8f0', cursor: 'pointer' }}>
+              <X size={16} />
+            </button>
+          </div>
+
+          <div style={{ overflowY: 'auto', padding: 14, display: 'flex', flexDirection: 'column', gap: 18 }}>
+            <VersionHistorySection
+              title="Unpublished versions"
+              versions={currentWorkflow.versions.filter((version) => version.kind === 'draft')}
+              selectedVersionId={selectedVersionId}
+              onSelect={selectVersionPreview}
+              versionMenuId={versionMenuId}
+              setVersionMenuId={setVersionMenuId}
+              onRename={handleRenameVersion}
+              onSaveAsWorkflow={handleSaveVersionAsWorkflow}
+              onRestore={handleRestoreVersion}
+            />
+
+            <VersionHistorySection
+              title="Published versions"
+              versions={currentWorkflow.versions.filter((version) => version.kind === 'published')}
+              selectedVersionId={selectedVersionId}
+              onSelect={selectVersionPreview}
+              versionMenuId={versionMenuId}
+              setVersionMenuId={setVersionMenuId}
+              onRename={handleRenameVersion}
+              onSaveAsWorkflow={handleSaveVersionAsWorkflow}
+              onRestore={handleRestoreVersion}
+            />
+
+            {deletedNodes.length > 0 && (
+              <div style={{ border: '1px dashed #ef4444', borderRadius: 8, padding: 10, background: 'rgba(239,68,68,0.08)' }}>
+                <div style={{ color: '#fca5a5', fontSize: 12, fontWeight: 700, marginBottom: 6 }}>Deleted steps</div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {deletedNodes.map((name) => (
+                    <div key={name} style={{ color: '#fecaca', fontSize: 12 }}>• {name}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {publishOpen && (
@@ -405,6 +574,82 @@ export function CanvasPage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+function VersionHistorySection({
+  title,
+  versions,
+  selectedVersionId,
+  onSelect,
+  versionMenuId,
+  setVersionMenuId,
+  onRename,
+  onSaveAsWorkflow,
+  onRestore,
+}: {
+  title: string
+  versions: WorkflowVersion[]
+  selectedVersionId: string | null
+  onSelect: (versionId: string) => void
+  versionMenuId: string | null
+  setVersionMenuId: (versionId: string | null) => void
+  onRename: (versionId: string) => void
+  onSaveAsWorkflow: (versionId: string) => void
+  onRestore: (versionId: string) => void
+}) {
+  return (
+    <div>
+      <div style={{ color: '#cbd5e1', fontSize: 14, fontWeight: 700, marginBottom: 8 }}>{title}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {versions.length === 0 && (
+          <div style={{ color: '#9ca3af', fontSize: 12 }}>No versions</div>
+        )}
+
+        {versions.map((version) => (
+          <div
+            key={version.id}
+            onClick={() => onSelect(version.id)}
+            style={{
+              border: selectedVersionId === version.id ? '1px solid #60a5fa' : '1px solid #4b5563',
+              background: selectedVersionId === version.id ? 'rgba(59,130,246,0.14)' : '#1c1e23',
+              borderRadius: 8,
+              padding: '10px 12px',
+              cursor: 'pointer',
+              position: 'relative',
+            }}
+          >
+            <div style={{ color: '#fff', fontSize: 13, fontWeight: 600, marginBottom: 2 }}>{version.name}</div>
+            <div style={{ color: '#d1d5db', fontSize: 12 }}>{new Date(version.createdAt).toLocaleString()}</div>
+            <div style={{ color: '#9ca3af', fontSize: 11, marginTop: 4 }}>{version.author}</div>
+
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                setVersionMenuId(versionMenuId === version.id ? null : version.id)
+              }}
+              style={{ position: 'absolute', right: 8, top: 8, background: 'transparent', border: 'none', color: '#9ca3af', cursor: 'pointer' }}
+            >
+              <MoreHorizontal size={15} />
+            </button>
+
+            {versionMenuId === version.id && (
+              <div style={{ position: 'absolute', right: 8, top: 30, width: 150, background: '#1c1e23', border: '1px solid #4b5563', borderRadius: 8, zIndex: 20, boxShadow: '0 12px 30px rgba(0,0,0,0.5)' }}>
+                <button onClick={(e) => { e.stopPropagation(); onRename(version.id) }} style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '8px 10px', cursor: 'pointer', fontSize: 12 }}>
+                  Rename version
+                </button>
+                <button onClick={(e) => { e.stopPropagation(); onSaveAsWorkflow(version.id) }} style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '8px 10px', cursor: 'pointer', fontSize: 12 }}>
+                  Save as workflow
+                </button>
+                <button onClick={(e) => { e.stopPropagation(); onRestore(version.id) }} style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '8px 10px', cursor: 'pointer', fontSize: 12 }}>
+                  Restore version
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

@@ -35,6 +35,18 @@ export interface WorkflowItem {
   timeBackMinutes?: number
   publishedNodes?: Node[]
   publishedEdges?: Edge[]
+  versions: WorkflowVersion[]
+}
+
+export interface WorkflowVersion {
+  id: string
+  name: string
+  createdAt: string
+  author: string
+  description?: string
+  kind: 'draft' | 'published'
+  nodes: Node[]
+  edges: Edge[]
 }
 
 interface WorkflowStore {
@@ -60,6 +72,9 @@ interface WorkflowStore {
   unpublishWorkflow: (id: string) => void
   setWorkflowTriggerEnabled: (id: string, enabled: boolean) => void
   openWorkflowInCanvas: (id: string) => void
+  renameWorkflowVersion: (workflowId: string, versionId: string, name: string) => void
+  restoreWorkflowVersion: (workflowId: string, versionId: string) => void
+  saveWorkflowVersionAsWorkflow: (workflowId: string, versionId: string) => string | null
   exportWorkflowYaml: (id: string, options?: { publishedOnly?: boolean }) => string | null
   importWorkflowYaml: (yamlText: string, mode: WorkflowConflictMode) => string
 }
@@ -80,6 +95,25 @@ function uniqueName(baseName: string, existingNames: string[]) {
     candidate = `${baseName} (${count})`
   }
   return candidate
+}
+
+function createVersionEntry(input: {
+  name: string
+  description?: string
+  kind: 'draft' | 'published'
+  nodes: Node[]
+  edges: Edge[]
+}) {
+  return {
+    id: `ver-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+    name: input.name,
+    createdAt: new Date().toISOString(),
+    author: 'You',
+    description: input.description || '',
+    kind: input.kind,
+    nodes: input.nodes,
+    edges: input.edges,
+  }
 }
 
 export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
@@ -116,6 +150,14 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       status: 'not_published',
       updatedAt: new Date().toISOString(),
       tags: [],
+      versions: [
+        createVersionEntry({
+          name: 'Latest version',
+          kind: 'draft',
+          nodes: get().nodes,
+          edges: get().edges,
+        }),
+      ],
     }
     set({
       workflows: [draft, ...get().workflows],
@@ -147,6 +189,16 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
           edges,
           status: nextStatus,
           updatedAt: new Date().toISOString(),
+          versions: [
+            createVersionEntry({
+              name: 'Latest version',
+              description: workflow.versionDescription,
+              kind: 'draft',
+              nodes,
+              edges,
+            }),
+            ...workflow.versions,
+          ],
         }
       }),
     })
@@ -179,6 +231,16 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
                 payload?.timeBackMinutes ?? workflow.timeBackMinutes,
               publishedNodes: nodes,
               publishedEdges: edges,
+              versions: [
+                createVersionEntry({
+                  name: payload?.versionDescription || `Published ${new Date().toLocaleString()}`,
+                  description: payload?.versionDescription,
+                  kind: 'published',
+                  nodes,
+                  edges,
+                }),
+                ...workflow.versions,
+              ],
             }
           : workflow,
       ),
@@ -226,6 +288,102 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
     })
   },
 
+  renameWorkflowVersion: (workflowId, versionId, name) => {
+    const trimmed = name.trim()
+    if (!trimmed) return
+
+    set({
+      workflows: get().workflows.map((workflow) =>
+        workflow.id !== workflowId
+          ? workflow
+          : {
+              ...workflow,
+              versions: workflow.versions.map((version) =>
+                version.id === versionId ? { ...version, name: trimmed } : version,
+              ),
+            },
+      ),
+    })
+  },
+
+  restoreWorkflowVersion: (workflowId, versionId) => {
+    const workflow = get().workflows.find((item) => item.id === workflowId)
+    if (!workflow) return
+
+    const version = workflow.versions.find((item) => item.id === versionId)
+    if (!version) return
+
+    const nextStatus =
+      workflow.status === 'published_enabled' || workflow.status === 'published_disabled'
+        ? 'has_unpublished_changes'
+        : 'not_published'
+
+    const restoredDraftVersion = createVersionEntry({
+      name: `Restored from ${version.name}`,
+      kind: 'draft',
+      nodes: version.nodes,
+      edges: version.edges,
+    })
+
+    set({
+      workflows: get().workflows.map((item) =>
+        item.id !== workflowId
+          ? item
+          : {
+              ...item,
+              nodes: version.nodes,
+              edges: version.edges,
+              status: nextStatus,
+              updatedAt: new Date().toISOString(),
+              versions: [restoredDraftVersion, ...item.versions],
+            },
+      ),
+      ...(get().currentWorkflowId === workflowId
+        ? {
+            nodes: version.nodes,
+            edges: version.edges,
+            selectedNode: null,
+          }
+        : {}),
+    })
+  },
+
+  saveWorkflowVersionAsWorkflow: (workflowId, versionId) => {
+    const workflow = get().workflows.find((item) => item.id === workflowId)
+    if (!workflow) return null
+
+    const version = workflow.versions.find((item) => item.id === versionId)
+    if (!version) return null
+
+    const existingNames = get().workflows.map((item) => item.name)
+    const nextName = uniqueName(`${workflow.name} - ${version.name}`, existingNames)
+
+    const newWorkflow: WorkflowItem = {
+      id: `wf-${Date.now()}`,
+      name: nextName,
+      description: workflow.description,
+      section: workflow.section,
+      nodes: version.nodes,
+      edges: version.edges,
+      status: 'not_published',
+      updatedAt: new Date().toISOString(),
+      versionDescription: version.description,
+      tags: [...workflow.tags],
+      versions: [
+        createVersionEntry({
+          name: 'Latest version',
+          description: `Saved from ${workflow.name} / ${version.name}`,
+          kind: 'draft',
+          nodes: version.nodes,
+          edges: version.edges,
+        }),
+      ],
+    }
+
+    set({ workflows: [newWorkflow, ...get().workflows] })
+    return newWorkflow.id
+  },
+
   exportWorkflowYaml: (id, options) => {
     const workflow = get().workflows.find((item) => item.id === id)
     if (!workflow) return null
@@ -270,6 +428,18 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
       tags: parsed.tags || [],
       publishedNodes: parsed.publishedNodes,
       publishedEdges: parsed.publishedEdges,
+      versions: [
+        createVersionEntry({
+          name: 'Imported version',
+          description: parsed.description,
+          kind:
+            toValidStatus(parsed.status || 'not_published') === 'not_published'
+              ? 'draft'
+              : 'published',
+          nodes: parsed.nodes,
+          edges: parsed.edges,
+        }),
+      ],
     })
 
     if (!conflict) {

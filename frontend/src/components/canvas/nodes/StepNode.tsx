@@ -2,16 +2,30 @@ import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { GitBranch } from 'lucide-react'
 
 export function StepNode({ data, selected }: NodeProps) {
+  const diffType = data.__diffType as 'modified' | 'added' | 'deleted' | undefined
+  const diffBorder =
+    diffType === 'modified'
+      ? '#3b82f6'
+      : diffType === 'added'
+      ? '#22c55e'
+      : diffType === 'deleted'
+      ? '#ef4444'
+      : null
+
   return (
     <div style={{
       background: '#0e1015',
-      border: `1px solid ${selected ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.08)'}`,
+      border: `1px solid ${selected ? 'rgba(255,255,255,0.4)' : diffBorder || 'rgba(255,255,255,0.08)'}`,
       borderRadius: 6,
       padding: '10px 16px 10px 16px',
       minWidth: 200,
       display: 'flex', alignItems: 'center', gap: 12,
       position: 'relative',
-      boxShadow: selected ? '0 0 0 2px rgba(255,255,255,0.1)' : '0 4px 12px rgba(0,0,0,0.5)',
+      boxShadow: selected
+        ? '0 0 0 2px rgba(255,255,255,0.1)'
+        : diffBorder
+        ? `0 0 0 2px ${diffBorder}40`
+        : '0 4px 12px rgba(0,0,0,0.5)',
       transition: 'all 0.15s ease',
     }}>
       {/* ── Icon Squircle ──────────────────────────────────── */}
@@ -65,6 +79,22 @@ export function StepNode({ data, selected }: NodeProps) {
           bottom: -6,
         }}
       />
+
+      {diffType && (
+        <div
+          style={{
+            position: 'absolute',
+            top: -18,
+            right: 0,
+            color: diffBorder || '#fff',
+            fontSize: 10,
+            fontWeight: 600,
+            textTransform: 'capitalize',
+          }}
+        >
+          {diffType}
+        </div>
+      )}
     </div>
   )
 }

@@ -2,14 +2,26 @@ import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { GitBranch } from 'lucide-react'
 
 export function OperatorNode({ data, selected }: NodeProps) {
+  const diffType = data.__diffType as 'modified' | 'added' | 'deleted' | undefined
+  const diffBorder =
+    diffType === 'modified'
+      ? '#3b82f6'
+      : diffType === 'added'
+      ? '#22c55e'
+      : diffType === 'deleted'
+      ? '#ef4444'
+      : null
+
   return (
     <div style={{
       background: 'var(--bg2)',
-      border: `1px solid ${selected ? 'var(--amber)' : 'var(--abg)'}`,
+      border: `1px solid ${selected ? 'var(--amber)' : diffBorder || 'var(--abg)'}`,
       borderRadius: 10,
       padding: '10px 14px',
       minWidth: 160,
+      position: 'relative',
       transition: 'all 0.15s ease',
+      boxShadow: diffBorder ? `0 0 0 2px ${diffBorder}40` : 'none',
     }}>
       <Handle type="target" position={Position.Top} style={{ background: 'var(--amber)', width: 8, height: 8 }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -32,6 +44,22 @@ export function OperatorNode({ data, selected }: NodeProps) {
         style={{ background: 'var(--green)', width: 8, height: 8, left: '30%' }} />
       <Handle type="source" position={Position.Bottom} id="false"
         style={{ background: 'var(--red)', width: 8, height: 8, left: '70%' }} />
+
+      {diffType && (
+        <div
+          style={{
+            position: 'absolute',
+            top: -18,
+            right: 0,
+            color: diffBorder || '#fff',
+            fontSize: 10,
+            fontWeight: 600,
+            textTransform: 'capitalize',
+          }}
+        >
+          {diffType}
+        </div>
+      )}
     </div>
   )
 }
