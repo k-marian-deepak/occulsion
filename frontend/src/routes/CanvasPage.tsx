@@ -59,6 +59,14 @@ type TriggerInputParameter = {
   required: boolean
 }
 
+type EmailTriggerInstance = {
+  id: string
+  name: string
+  address: string
+  shared: boolean
+  lastEventAt?: number
+}
+
 const TEST_TRIGGER_EVENTS = [
   { id: 'evt-1', label: 'Previous trigger event - Email phishing alert' },
   { id: 'evt-2', label: 'Previous trigger event - Suspicious login' },
@@ -453,6 +461,61 @@ function buildImapEventLogSample(instanceName: string, folder: string) {
         message_id: `<msg-${Math.floor(1000 + Math.random() * 9000)}@mail.example.com>`,
         received_at: new Date(Date.now() - 66 * 60 * 1000).toISOString(),
         body_preview: 'A new login was detected from an unrecognized device.',
+      },
+    },
+  ]
+}
+
+function buildEmailTriggerAddress(instanceName: string) {
+  const slug = String(instanceName || 'email_demo')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+  const suffix = Math.random().toString(36).slice(2, 8)
+  return `hooks.torq.io.${slug || 'email_demo'}_${suffix}@mg.torq.io`
+}
+
+function buildEmailTriggerEventLogSample(instance: EmailTriggerInstance) {
+  return [
+    {
+      id: `AA-${Math.floor(300000 + Math.random() * 200000)}`,
+      timestamp: Date.now() - 12 * 60 * 1000,
+      triggeredBy: 'D',
+      event: {
+        sent: new Date(Date.now() - 12 * 60 * 1000).toUTCString(),
+        subject: 'Phishing attempt has been detected',
+        from: 'vendor-alerts@example.com',
+        to: instance.address,
+        body: {
+          'text/plain': 'Phishing attempt has been detected. Please review IOC links and notify SecOps.',
+          'text/html': '<div>Phishing attempt has been detected.</div><div>Review IOC links and notify SecOps.</div>',
+        },
+        attachments: [
+          {
+            name: 'ioc_report.csv',
+            size: 38120,
+            content_type: 'text/csv',
+            file_url: createTqFileUrl(),
+          },
+        ],
+        total_size_bytes: 92411,
+      },
+    },
+    {
+      id: `AA-${Math.floor(300000 + Math.random() * 200000)}`,
+      timestamp: Date.now() - 2 * 24 * 60 * 60 * 1000,
+      triggeredBy: 'D',
+      event: {
+        sent: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toUTCString(),
+        subject: 'Endpoint suspicious behavior',
+        from: 'siem-notifier@example.com',
+        to: instance.address,
+        body: {
+          'text/plain': 'Suspicious endpoint behavior detected. Investigate immediately.',
+        },
+        attachments: [],
+        total_size_bytes: 14012,
       },
     },
   ]
@@ -2930,6 +2993,13 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const [imapPasswordVisible, setImapPasswordVisible] = useState(false)
   const [imapInterval, setImapInterval] = useState<(typeof IMAP_FETCH_INTERVALS)[number]>(String(node.data?.imapInterval || '1m') as (typeof IMAP_FETCH_INTERVALS)[number])
   const [imapFolder, setImapFolder] = useState(String(node.data?.imapFolder || 'INBOX'))
+  const [showEmailTriggerWorkspaceModal, setShowEmailTriggerWorkspaceModal] = useState(false)
+  const [showEmailTriggerInstanceModal, setShowEmailTriggerInstanceModal] = useState(false)
+  const [emailTriggerSearch, setEmailTriggerSearch] = useState('')
+  const [emailTriggerInstanceName, setEmailTriggerInstanceName] = useState(String(node.data?.emailTriggerInstanceName || 'email_demo'))
+  const [emailTriggerInstances, setEmailTriggerInstances] = useState<EmailTriggerInstance[]>(
+    Array.isArray(node.data?.emailTriggerInstances) ? node.data.emailTriggerInstances : [],
+  )
   const [scheduleIntervalValue, setScheduleIntervalValue] = useState(String(node.data?.scheduleIntervalValue || '1'))
   const [scheduleIntervalUnit, setScheduleIntervalUnit] = useState<(typeof SCHEDULE_INTERVAL_UNITS)[number]>(String(node.data?.scheduleIntervalUnit || 'Hour') as (typeof SCHEDULE_INTERVAL_UNITS)[number])
   const [scheduleRunTime, setScheduleRunTime] = useState(String(node.data?.scheduleRunTime || '09:00'))
@@ -3315,6 +3385,11 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
     setImapPasswordVisible(false)
     setImapInterval(String(node.data?.imapInterval || '1m') as (typeof IMAP_FETCH_INTERVALS)[number])
     setImapFolder(String(node.data?.imapFolder || 'INBOX'))
+    setShowEmailTriggerWorkspaceModal(false)
+    setShowEmailTriggerInstanceModal(false)
+    setEmailTriggerSearch('')
+    setEmailTriggerInstanceName(String(node.data?.emailTriggerInstanceName || 'email_demo'))
+    setEmailTriggerInstances(Array.isArray(node.data?.emailTriggerInstances) ? node.data.emailTriggerInstances : [])
     setScheduleIntervalValue(String(node.data?.scheduleIntervalValue || '1'))
     setScheduleIntervalUnit(String(node.data?.scheduleIntervalUnit || 'Hour') as (typeof SCHEDULE_INTERVAL_UNITS)[number])
     setScheduleRunTime(String(node.data?.scheduleRunTime || '09:00'))
@@ -4112,27 +4187,46 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                               value={triggerIntegrationName}
                               onChange={(event) => {
                                 const value = event.target.value
-                                const defaultInstance = value === 'IMAP' ? (imapInstanceName || 'torq-imap-demo') : `${value.replace(/\s+/g, '_')}_Demo`
+                                const defaultInstance =
+                                  value === 'IMAP'
+                                    ? (imapInstanceName || 'torq-imap-demo')
+                                    : value === 'Email Trigger'
+                                    ? (emailTriggerInstances[0]?.name || emailTriggerInstanceName || 'email_demo')
+                                    : `${value.replace(/\s+/g, '_')}_Demo`
                                 setTriggerIntegrationName(value)
                                 setTriggerIntegrationInstance(defaultInstance)
                                 if (value === 'IMAP') {
                                   setTriggerAcceptRawHttp(false)
                                   setShowImapInstanceModal(true)
                                 }
+                                if (value === 'Email Trigger') {
+                                  setTriggerAcceptRawHttp(false)
+                                  setShowEmailTriggerWorkspaceModal(true)
+                                }
                                 persistNodeData({
                                   triggerIntegrationName: value,
                                   triggerIntegrationInstance: defaultInstance,
                                   label: value,
                                   subtext: 'Integration',
-                                  ...(value === 'IMAP'
+                                  ...((value === 'IMAP' || value === 'Email Trigger')
                                     ? {
                                         triggerAcceptRawHttp: false,
+                                      }
+                                    : {}),
+                                  ...(value === 'IMAP'
+                                    ? {
                                         imapInstanceName: defaultInstance,
                                         imapServerPort: imapServerPort || 'imap.gmail.com:993',
                                         imapUsername,
                                         imapPassword,
                                         imapInterval,
                                         imapFolder: imapFolder || 'INBOX',
+                                      }
+                                    : {}),
+                                  ...(value === 'Email Trigger'
+                                    ? {
+                                        emailTriggerInstances,
+                                        emailTriggerInstanceName: emailTriggerInstanceName || 'email_demo',
                                       }
                                     : {}),
                                 })
@@ -4149,7 +4243,7 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
 
                         <div style={{ marginBottom: 14 }}>
                           <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Integration instance</div>
-                          {triggerIntegrationName === 'IMAP' ? (
+                          {triggerIntegrationName === 'IMAP' || triggerIntegrationName === 'Email Trigger' ? (
                             <div style={{ display: 'flex', gap: 8 }}>
                               <input
                                 value={triggerIntegrationInstance}
@@ -4157,7 +4251,13 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                                 style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
                               />
                               <button
-                                onClick={() => setShowImapInstanceModal(true)}
+                                onClick={() => {
+                                  if (triggerIntegrationName === 'IMAP') {
+                                    setShowImapInstanceModal(true)
+                                  } else {
+                                    setShowEmailTriggerWorkspaceModal(true)
+                                  }
+                                }}
                                 style={{ background: '#17191e', border: '1px solid #333842', color: '#e2e8f0', borderRadius: 6, padding: '10px 12px', fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}
                               >
                                 Add Instance
@@ -4185,11 +4285,21 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                           </div>
                         )}
 
+                        {triggerIntegrationName === 'Email Trigger' && (
+                          <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.6 }}>
+                            Create an Email Trigger instance and share the autogenerated recipient email with your vendor.
+                            <br />
+                            Incoming emails trigger the workflow automatically. Email payload size is limited to 4MB including attachments.
+                          </div>
+                        )}
+
                         <div style={{ marginBottom: 14 }}>
                           <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Webhook URL</div>
-                          {triggerIntegrationName === 'IMAP' ? (
+                          {triggerIntegrationName === 'IMAP' || triggerIntegrationName === 'Email Trigger' ? (
                             <div style={{ background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#9ca3af', fontSize: 12, lineHeight: 1.6 }}>
-                              IMAP triggers poll mailbox events directly. No webhook URL is required.
+                              {triggerIntegrationName === 'IMAP'
+                                ? 'IMAP triggers poll mailbox events directly. No webhook URL is required.'
+                                : 'Email Trigger instances use autogenerated mg.torq.io recipient addresses. No webhook URL is required.'}
                             </div>
                           ) : (
                             <>
@@ -4208,7 +4318,7 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                           )}
                         </div>
 
-                        {triggerIntegrationName !== 'IMAP' && (
+                        {triggerIntegrationName !== 'IMAP' && triggerIntegrationName !== 'Email Trigger' && (
                           <div style={{ marginBottom: 16 }}>
                             <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#e2e8f0', fontSize: 12, cursor: 'pointer' }}>
                               <input
@@ -4231,6 +4341,15 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                             <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ $.event.subject }}'}</span><br />
                             <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ $.event.from }}'}</span><br />
                             <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ $.event.body_preview }}'}</span>
+                          </div>
+                        )}
+
+                        {triggerIntegrationName === 'Email Trigger' && (
+                          <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.6 }}>
+                            Email trigger event context examples:<br />
+                            <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ $.event.subject }}'}</span><br />
+                            <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ $.event.body.text/plain }}'}</span><br />
+                            <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ $.event.attachments[0].file_url }}'}</span>
                           </div>
                         )}
 
@@ -4365,6 +4484,157 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                                   </button>
                                 </div>
                               </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {showEmailTriggerWorkspaceModal && triggerIntegrationName === 'Email Trigger' && (
+                          <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.82)', zIndex: 95, padding: 24 }}>
+                            <div style={{ width: '100%', height: '100%', background: '#02050a', border: '1px solid #1f2430', borderRadius: 14, padding: '28px 34px', position: 'relative' }}>
+                              <button
+                                onClick={() => {
+                                  setShowEmailTriggerWorkspaceModal(false)
+                                  setShowEmailTriggerInstanceModal(false)
+                                }}
+                                style={{ position: 'absolute', right: 22, top: 20, background: 'transparent', border: 'none', color: '#e2e8f0', cursor: 'pointer' }}
+                              >
+                                <X size={24} />
+                              </button>
+
+                              <button
+                                onClick={() => setShowEmailTriggerWorkspaceModal(false)}
+                                style={{ background: 'transparent', border: 'none', color: '#9ca3af', cursor: 'pointer', fontSize: 22, display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}
+                              >
+                                <ArrowLeft size={18} /> Back
+                              </button>
+
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 10 }}>
+                                <div style={{ width: 62, height: 62, borderRadius: 8, background: '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  <i className="fa-regular fa-envelope" style={{ color: '#0f172a', fontSize: 28 }} />
+                                </div>
+                                <div style={{ color: '#e2e8f0', fontSize: 42, fontWeight: 600 }}>Email Trigger integrations</div>
+                              </div>
+
+                              <div style={{ color: '#9ca3af', fontSize: 16, lineHeight: 1.6, maxWidth: 820, marginBottom: 18 }}>
+                                This integration triggers Torq workflows following an Email message received in a uniquely generated email address.
+                              </div>
+
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+                                <div style={{ width: 320, position: 'relative' }}>
+                                  <input
+                                    value={emailTriggerSearch}
+                                    onChange={(event) => setEmailTriggerSearch(event.target.value)}
+                                    placeholder="Search"
+                                    style={{ width: '100%', background: '#1f2430', border: '1px solid #4b5563', borderRadius: 30, padding: '10px 14px 10px 40px', color: '#e2e8f0', fontSize: 16, outline: 'none' }}
+                                  />
+                                  <Search size={16} color="#9ca3af" style={{ position: 'absolute', left: 14, top: 12 }} />
+                                </div>
+
+                                <button
+                                  onClick={() => {
+                                    setEmailTriggerInstanceName('email_demo')
+                                    setShowEmailTriggerInstanceModal(true)
+                                  }}
+                                  style={{ background: '#e5e7eb', border: 'none', color: '#111827', borderRadius: 8, padding: '10px 18px', fontSize: 30, fontWeight: 500, cursor: 'pointer' }}
+                                >
+                                  Add Instance
+                                </button>
+                              </div>
+
+                              <div style={{ borderTop: '1px solid #374151', marginTop: 10 }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 2.4fr 1.2fr 0.8fr', gap: 12, padding: '14px 18px', color: '#d1d5db', fontSize: 14, fontWeight: 600 }}>
+                                  <div>Name</div>
+                                  <div>Email</div>
+                                  <div>Last Event</div>
+                                  <div>Shared</div>
+                                </div>
+                                <div style={{ borderTop: '1px solid #374151' }} />
+
+                                {emailTriggerInstances
+                                  .filter((instance) => instance.name.toLowerCase().includes(emailTriggerSearch.toLowerCase()))
+                                  .map((instance) => (
+                                    <div key={instance.id} style={{ display: 'grid', gridTemplateColumns: '1.2fr 2.4fr 1.2fr 0.8fr', gap: 12, padding: '16px 18px', borderBottom: '1px solid #1f2430', alignItems: 'center' }}>
+                                      <div style={{ color: '#e2e8f0', fontSize: 16, fontWeight: 600 }}>{instance.name}</div>
+                                      <div style={{ color: '#e2e8f0', fontSize: 15, fontFamily: 'monospace' }}>
+                                        {instance.shared ? 'Hidden in shared workspace' : instance.address}
+                                      </div>
+                                      <div style={{ color: '#9ca3af', fontSize: 14 }}>
+                                        {instance.lastEventAt
+                                          ? new Date(instance.lastEventAt).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+                                          : '—'}
+                                      </div>
+                                      <div style={{ color: '#9ca3af', fontSize: 14 }}>{instance.shared ? 'Yes' : 'No'}</div>
+                                    </div>
+                                  ))}
+
+                                {emailTriggerInstances.filter((instance) => instance.name.toLowerCase().includes(emailTriggerSearch.toLowerCase())).length === 0 && (
+                                  <div style={{ color: '#6b7280', fontSize: 18, padding: '26px 18px' }}>No integration here yet</div>
+                                )}
+                              </div>
+
+                              {showEmailTriggerInstanceModal && (
+                                <div style={{ position: 'fixed', inset: 0, background: 'rgba(2,6,23,0.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                  <div style={{ width: 'min(760px, 92vw)', background: '#2a2d33', border: '1px solid #3a3f47', borderRadius: 12, overflow: 'hidden' }}>
+                                    <div style={{ padding: '16px 18px', borderBottom: '1px solid #3a3f47', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                      <div style={{ color: '#fff', fontSize: 44, fontWeight: 500 }}>New Instance</div>
+                                      <button
+                                        onClick={() => setShowEmailTriggerInstanceModal(false)}
+                                        style={{ background: 'transparent', border: 'none', color: '#e2e8f0', cursor: 'pointer' }}
+                                      >
+                                        <X size={22} />
+                                      </button>
+                                    </div>
+
+                                    <div style={{ padding: 18 }}>
+                                      <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Instance name</div>
+                                      <input
+                                        value={emailTriggerInstanceName}
+                                        onChange={(event) => setEmailTriggerInstanceName(event.target.value)}
+                                        placeholder="email_demo"
+                                        style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                                      />
+                                    </div>
+
+                                    <div style={{ borderTop: '1px solid #3a3f47', padding: '14px 18px', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                                      <button
+                                        onClick={() => setShowEmailTriggerInstanceModal(false)}
+                                        style={{ background: '#06090f', border: '1px solid #e2e8f0', color: '#fff', borderRadius: 8, padding: '8px 16px', fontSize: 13, cursor: 'pointer' }}
+                                      >
+                                        Cancel
+                                      </button>
+                                      <button
+                                        onClick={() => {
+                                          const name = emailTriggerInstanceName.trim() || 'email_demo'
+                                          const instance: EmailTriggerInstance = {
+                                            id: `email-inst-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+                                            name,
+                                            address: buildEmailTriggerAddress(name),
+                                            shared: false,
+                                            lastEventAt: Date.now(),
+                                          }
+                                          const nextInstances = [instance, ...emailTriggerInstances]
+                                          const sampleLog = buildEmailTriggerEventLogSample(instance)
+                                          setEmailTriggerInstances(nextInstances)
+                                          setTriggerIntegrationInstance(instance.name)
+                                          setTriggerEventLog(sampleLog as any)
+                                          setExpandedEventLogId(sampleLog[0]?.id || null)
+                                          setShowEmailTriggerInstanceModal(false)
+                                          persistNodeData({
+                                            emailTriggerInstances: nextInstances,
+                                            emailTriggerInstanceName: name,
+                                            triggerIntegrationInstance: instance.name,
+                                            triggerEventLog: sampleLog,
+                                            expandedEventLogId: sampleLog[0]?.id || '',
+                                          })
+                                        }}
+                                        style={{ background: '#e5e7eb', border: 'none', color: '#111827', borderRadius: 8, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+                                      >
+                                        Add
+                                      </button>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           </div>
                         )}
