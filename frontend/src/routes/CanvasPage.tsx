@@ -48,6 +48,7 @@ export function CanvasPage() {
     nodes,
     edges,
     addNode,
+    persistCurrentWorkflowGraph,
     selectedNode,
     currentWorkflowId,
     workflows,
@@ -84,6 +85,7 @@ export function CanvasPage() {
   const [timeBackMinutes, setTimeBackMinutes] = useState(20)
 
   const previewBackupRef = useRef<{ nodes: any[]; edges: any[] } | null>(null)
+  const fitViewForPrintRef = useRef<(() => void) | null>(null)
 
   const currentWorkflow = workflows.find((item) => item.id === currentWorkflowId)
 
@@ -192,6 +194,23 @@ export function CanvasPage() {
     setActionsOpen(false)
   }
 
+  const registerPrintFitView = useCallback((handler: (() => void) | null) => {
+    fitViewForPrintRef.current = handler
+  }, [])
+
+  const handleExportPdf = () => {
+    setActionsOpen(false)
+    setViewMode('designer')
+    document.body.classList.add('workflow-pdf-export')
+
+    requestAnimationFrame(() => {
+      fitViewForPrintRef.current?.()
+      window.setTimeout(() => {
+        window.print()
+      }, 260)
+    })
+  }
+
   const confirmPublish = () => {
     if (currentUserRole === 'creator') return
     publishCurrentWorkflow({
@@ -256,6 +275,22 @@ export function CanvasPage() {
     })
     navigate('/cases')
   }
+
+  const addAnnotationAtPosition = (position: { x: number; y: number }) => {
+    const annotationNode = {
+      id: `annotation-${Date.now()}`,
+      type: 'annotation',
+      position,
+      data: {
+        content: '',
+        pinnedTo: null,
+      },
+    }
+
+    const nextNodes = [...nodes, annotationNode as any]
+    setNodes(nextNodes as any)
+    persistCurrentWorkflowGraph(nextNodes as any, edges)
+  }
   
   const urlMode = new URLSearchParams(location.search).get('mode')
   const [viewMode, setViewMode] = useState<'designer'|'runlog'>(urlMode === 'runlog' ? 'runlog' : 'designer')
@@ -273,6 +308,29 @@ export function CanvasPage() {
     }
   }, [])
 
+  useEffect(() => {
+    const clearPrintMode = () => {
+      document.body.classList.remove('workflow-pdf-export')
+    }
+
+    window.addEventListener('afterprint', clearPrintMode)
+
+    const media = window.matchMedia('print')
+    const onPrintChange = (event: MediaQueryListEvent) => {
+      if (!event.matches) {
+        clearPrintMode()
+      }
+    }
+
+    media.addEventListener?.('change', onPrintChange)
+
+    return () => {
+      clearPrintMode()
+      window.removeEventListener('afterprint', clearPrintMode)
+      media.removeEventListener?.('change', onPrintChange)
+    }
+  }, [])
+
   const onDragStart = (e: React.DragEvent, action: any) => {
     e.dataTransfer.setData('application/reactflow', JSON.stringify(action))
     e.dataTransfer.effectAllowed = 'move'
@@ -284,10 +342,10 @@ export function CanvasPage() {
   )
 
   return (
-    <div style={{ display: 'flex', height: '100vh', width: '100%', background: '#0e1015', overflow: 'hidden' }}>
+    <div className="workflow-canvas-page" style={{ display: 'flex', height: '100vh', width: '100%', background: '#0e1015', overflow: 'hidden' }}>
       
       {/* ── Left Sidebar ───────────────────────────────────────── */}
-      <div style={{
+      <div className="workflow-editor-sidebar" style={{
         width: 320, background: '#1c1e23', borderRight: '1px solid #2a2e35',
         display: 'flex', flexDirection: 'column', flexShrink: 0,
         boxShadow: '4px 0 20px rgba(0,0,0,0.4)', zIndex: 10,
@@ -423,11 +481,11 @@ export function CanvasPage() {
       </div>
 
       {/* ── Canvas Area ──────────────────────────────────────── */}
-      <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+      <div className="workflow-pdf-target" style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
         <ReactFlowProvider>
-          <WorkflowCanvasWrapper addNode={addNode as any}>
+          <WorkflowCanvasWrapper addNode={addNode as any} onPrintReady={registerPrintFitView} onAddAnnotation={addAnnotationAtPosition}>
             {/* Top Header Toggle & Breadcrumb */}
-            <Panel position="top-left" style={{ margin: 0, width: '100%', pointerEvents: 'none', zIndex: 10 }}>
+            <Panel position="top-left" className="workflow-editor-chrome" style={{ margin: 0, width: '100%', pointerEvents: 'none', zIndex: 10 }}>
               <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 72, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <div style={{ position: 'absolute', left: 24, pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: 12, color: '#e2e8f0', fontSize: 14, fontWeight: 500 }}>
                   <div style={{ width: 28, height: 28, background: '#fff', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -511,6 +569,9 @@ export function CanvasPage() {
                     </button>
                     {actionsOpen && (
                       <div style={{ position: 'absolute', top: 42, right: 0, width: 220, background: '#252830', border: '1px solid #333842', borderRadius: 8, boxShadow: '0 16px 40px rgba(0,0,0,0.5)', zIndex: 30 }}>
+                        <button onClick={handleExportPdf} style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '10px 12px', cursor: 'pointer' }}>
+                          <i className="fa-solid fa-file-pdf" style={{ marginRight: 8 }} /> Export as PDF
+                        </button>
                         <button onClick={() => handleExport(false)} style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '10px 12px', cursor: 'pointer' }}>
                           <i className="fa-solid fa-arrow-up-from-bracket" style={{ marginRight: 8 }} /> Export workflow
                         </button>
@@ -541,7 +602,7 @@ export function CanvasPage() {
               </div>
             </Panel>
 
-            <Panel position="bottom-center" style={{ margin: 0, bottom: 24, zIndex: 10 }}>
+            <Panel position="bottom-center" className="workflow-editor-chrome" style={{ margin: 0, bottom: 24, zIndex: 10 }}>
               <FloatingToolbarInner />
             </Panel>
           </WorkflowCanvasWrapper>
@@ -559,7 +620,7 @@ export function CanvasPage() {
       )}
 
       {versionHistoryOpen && currentWorkflow && (
-        <div style={{ position: 'fixed', top: 84, left: 86, bottom: 18, width: 420, background: '#2a2e35', border: '1px solid #4b5563', borderRadius: 10, zIndex: 900, display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
+        <div className="workflow-editor-modal" style={{ position: 'fixed', top: 84, left: 86, bottom: 18, width: 420, background: '#2a2e35', border: '1px solid #4b5563', borderRadius: 10, zIndex: 900, display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
           <div style={{ padding: '18px 16px 8px', borderBottom: '1px solid #4b5563', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ color: '#fff', fontSize: 28, fontWeight: 700 }}>Version history</div>
             <button onClick={closeVersionHistory} style={{ background: 'none', border: 'none', color: '#e2e8f0', cursor: 'pointer' }}>
@@ -607,7 +668,7 @@ export function CanvasPage() {
       )}
 
       {publishOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div className="workflow-editor-modal" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ width: 520, background: '#252830', border: '1px solid #333842', borderRadius: 12, boxShadow: '0 20px 60px rgba(0,0,0,0.6)', overflow: 'hidden' }}>
             <div style={{ padding: '18px 22px', borderBottom: '1px solid #333842', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ color: '#fff', fontSize: 18, fontWeight: 600 }}>Publish workflow</div>
@@ -664,7 +725,7 @@ export function CanvasPage() {
       )}
 
       {submitForReviewOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div className="workflow-editor-modal" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <div style={{ width: 520, background: '#252830', border: '1px solid #333842', borderRadius: 12, boxShadow: '0 20px 60px rgba(0,0,0,0.6)', overflow: 'hidden' }}>
             <div style={{ padding: '18px 22px', borderBottom: '1px solid #333842', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
               <div style={{ color: '#fff', fontSize: 18, fontWeight: 600 }}>Submit workflow for review</div>
@@ -831,12 +892,22 @@ function VersionHistorySection({
   )
 }
 
-function WorkflowCanvasWrapper({ addNode, children }: { addNode: (node: any) => void, children?: React.ReactNode }) {
+function WorkflowCanvasWrapper({
+  addNode,
+  children,
+  onPrintReady,
+  onAddAnnotation,
+}: {
+  addNode: (node: any) => void
+  children?: React.ReactNode
+  onPrintReady: (handler: (() => void) | null) => void
+  onAddAnnotation: (position: { x: number; y: number }) => void
+}) {
   const containerRef = useRef<HTMLDivElement>(null)
   
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%' }}>
-      <DropZone addNode={addNode}>
+      <DropZone addNode={addNode} onPrintReady={onPrintReady} onAddAnnotation={onAddAnnotation}>
         {children}
       </DropZone>
     </div>
@@ -862,8 +933,41 @@ function FloatingToolbarInner() {
   )
 }
 
-function DropZone({ addNode, children }: { addNode: (node: any) => void, children?: React.ReactNode }) {
+function PrintFitBridge({ onPrintReady }: { onPrintReady: (handler: (() => void) | null) => void }) {
+  const { fitView } = useReactFlow()
+
+  useEffect(() => {
+    const handler = () => {
+      fitView({ padding: 0.2, duration: 140 })
+    }
+    onPrintReady(handler)
+    return () => onPrintReady(null)
+  }, [fitView, onPrintReady])
+
+  return null
+}
+
+function DropZone({
+  addNode,
+  children,
+  onPrintReady,
+  onAddAnnotation,
+}: {
+  addNode: (node: any) => void
+  children?: React.ReactNode
+  onPrintReady: (handler: (() => void) | null) => void
+  onAddAnnotation: (position: { x: number; y: number }) => void
+}) {
   const { screenToFlowPosition } = useReactFlow()
+  const [contextMenu, setContextMenu] = useState<
+    | {
+        screenX: number
+        screenY: number
+        flowX: number
+        flowY: number
+      }
+    | null
+  >(null)
 
   const onDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -897,11 +1001,73 @@ function DropZone({ addNode, children }: { addNode: (node: any) => void, childre
     addNode(newNode)
   }, [addNode, screenToFlowPosition])
 
+  const onContextMenu = useCallback(
+    (event: React.MouseEvent) => {
+      event.preventDefault()
+      const flowPosition = screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      })
+      setContextMenu({
+        screenX: event.clientX,
+        screenY: event.clientY,
+        flowX: flowPosition.x,
+        flowY: flowPosition.y,
+      })
+    },
+    [screenToFlowPosition],
+  )
+
   return (
-    <div style={{ width: '100%', height: '100%' }} onDragOver={onDragOver} onDrop={onDrop}>
+    <div
+      style={{ width: '100%', height: '100%', position: 'relative' }}
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      onContextMenu={onContextMenu}
+      onClick={() => setContextMenu(null)}
+    >
       <WorkflowCanvas>
+        <PrintFitBridge onPrintReady={onPrintReady} />
         {children}
       </WorkflowCanvas>
+
+      {contextMenu && (
+        <div
+          className="nodrag"
+          style={{
+            position: 'fixed',
+            top: contextMenu.screenY,
+            left: contextMenu.screenX,
+            background: '#1c1e23',
+            border: '1px solid #333842',
+            borderRadius: 8,
+            width: 170,
+            padding: 6,
+            boxShadow: '0 16px 40px rgba(0,0,0,0.45)',
+            zIndex: 1200,
+          }}
+        >
+          <button
+            onClick={() => {
+              onAddAnnotation({ x: contextMenu.flowX, y: contextMenu.flowY })
+              setContextMenu(null)
+            }}
+            style={{
+              width: '100%',
+              background: 'transparent',
+              border: 'none',
+              borderRadius: 6,
+              color: '#e2e8f0',
+              textAlign: 'left',
+              padding: '8px 10px',
+              cursor: 'pointer',
+              fontSize: 13,
+            }}
+          >
+            <i className="fa-regular fa-note-sticky" style={{ marginRight: 8 }} /> Add annotation
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -918,7 +1084,7 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   }, [node])
   
   return (
-    <div className="animate-fade-in" style={{
+    <div className="animate-fade-in workflow-editor-properties" style={{
       width: 420, background: '#1c1e23', borderLeft: '1px solid #2a2e35',
       display: 'flex', flexDirection: 'column', flexShrink: 0,
       zIndex: 10, overflowY: 'auto', position: 'relative'

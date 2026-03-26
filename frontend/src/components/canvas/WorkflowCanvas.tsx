@@ -5,12 +5,14 @@ import { TriggerNode } from './nodes/TriggerNode'
 import { StepNode } from './nodes/StepNode'
 import { OperatorNode } from './nodes/OperatorNode'
 import { AINode } from './nodes/AINode'
+import { AnnotationNode } from './nodes/AnnotationNode'
 
 export const nodeTypes = {
   trigger: TriggerNode,
   step: StepNode,
   operator: OperatorNode,
   ai: AINode,
+  annotation: AnnotationNode,
 }
 
 export function WorkflowCanvas({ children }: { children?: React.ReactNode }) {

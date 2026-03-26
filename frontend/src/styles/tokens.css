@@ -237,3 +237,52 @@ body {
   border-radius: 6px;
 }
 
+@media print {
+  @page {
+    size: landscape;
+    margin: 8mm;
+  }
+
+  body.workflow-pdf-export #root {
+    width: auto !important;
+    max-width: none !important;
+    margin: 0 !important;
+    border: none !important;
+    min-height: auto !important;
+  }
+
+  body.workflow-pdf-export .sidebar,
+  body.workflow-pdf-export .workflow-editor-sidebar,
+  body.workflow-pdf-export .workflow-editor-properties,
+  body.workflow-pdf-export .workflow-editor-chrome,
+  body.workflow-pdf-export .workflow-editor-modal {
+    display: none !important;
+  }
+
+  body.workflow-pdf-export .app-layout,
+  body.workflow-pdf-export .main-content,
+  body.workflow-pdf-export .page-content,
+  body.workflow-pdf-export .workflow-canvas-page,
+  body.workflow-pdf-export .workflow-pdf-target {
+    width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    background: #fff !important;
+    padding: 0 !important;
+  }
+
+  body.workflow-pdf-export .workflow-pdf-target .react-flow,
+  body.workflow-pdf-export .workflow-pdf-target .react-flow__renderer,
+  body.workflow-pdf-export .workflow-pdf-target .react-flow__pane,
+  body.workflow-pdf-export .workflow-pdf-target .react-flow__background {
+    background: #fff !important;
+  }
+
+  body.workflow-pdf-export .workflow-pdf-target .react-flow__panel,
+  body.workflow-pdf-export .workflow-pdf-target .react-flow__minimap,
+  body.workflow-pdf-export .workflow-pdf-target .react-flow__controls,
+  body.workflow-pdf-export .workflow-pdf-target .react-flow__attribution {
+    display: none !important;
+  }
+}
+

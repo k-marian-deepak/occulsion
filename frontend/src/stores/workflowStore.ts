@@ -115,6 +115,7 @@ interface WorkflowStore {
   setCurrentUserRole: (role: UserRole) => void
   selectNode: (node: Node | null) => void
   addNode: (node: Node) => void
+  persistCurrentWorkflowGraph: (nodes: Node[], edges: Edge[]) => void
   createWorkflowDraft: (name?: string) => string
   saveCurrentWorkflowDraft: (name?: string) => string | null
   publishCurrentWorkflow: (payload?: {
@@ -202,7 +203,39 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   currentUserRole: 'creator',
 
   onNodesChange: (changes) =>
-    set({ nodes: applyNodeChanges(changes, get().nodes) }),
+    set(() => {
+      const previousNodes = get().nodes
+      const changedNodes = applyNodeChanges(changes, previousNodes)
+      let nextNodes = changedNodes
+
+      changes.forEach((change) => {
+        if (change.type !== 'position') return
+
+        const before = previousNodes.find((item) => item.id === change.id)
+        const after = changedNodes.find((item) => item.id === change.id)
+        if (!before || !after) return
+        if (before.type === 'annotation') return
+
+        const deltaX = (after.position?.x ?? 0) - (before.position?.x ?? 0)
+        const deltaY = (after.position?.y ?? 0) - (before.position?.y ?? 0)
+        if (!deltaX && !deltaY) return
+
+        nextNodes = nextNodes.map((node) => {
+          if (node.type !== 'annotation') return node
+          const pinnedTo = (node.data as { pinnedTo?: string } | undefined)?.pinnedTo
+          if (pinnedTo !== change.id) return node
+          return {
+            ...node,
+            position: {
+              x: (node.position?.x ?? 0) + deltaX,
+              y: (node.position?.y ?? 0) + deltaY,
+            },
+          }
+        })
+      })
+
+      return { nodes: nextNodes }
+    }),
 
   onEdgesChange: (changes) =>
     set({ edges: applyEdgeChanges(changes, get().edges) }),
@@ -216,6 +249,30 @@ export const useWorkflowStore = create<WorkflowStore>((set, get) => ({
   selectNode: (node) => set({ selectedNode: node }),
 
   addNode: (node) => set({ nodes: [...get().nodes, node] }),
+
+  persistCurrentWorkflowGraph: (nodes, edges) => {
+    const { currentWorkflowId, workflows } = get()
+    if (!currentWorkflowId) return
+
+    set({
+      workflows: workflows.map((workflow) => {
+        if (workflow.id !== currentWorkflowId) return workflow
+
+        const nextStatus: WorkflowStatus =
+          workflow.status === 'published_enabled' || workflow.status === 'published_disabled'
+            ? 'has_unpublished_changes'
+            : workflow.status
+
+        return {
+          ...workflow,
+          nodes,
+          edges,
+          status: nextStatus,
+          updatedAt: new Date().toISOString(),
+        }
+      }),
+    })
+  },
 
   createWorkflowDraft: (name = 'Untitled workflow') => {
     const id = `wf-${Date.now()}`
