@@ -52,6 +52,13 @@ type WorkflowRunEntry = {
   nodeLabel?: string
 }
 
+type TriggerInputParameter = {
+  id: string
+  name: string
+  type: 'Text' | 'File'
+  required: boolean
+}
+
 const TEST_TRIGGER_EVENTS = [
   { id: 'evt-1', label: 'Previous trigger event - Email phishing alert' },
   { id: 'evt-2', label: 'Previous trigger event - Suspicious login' },
@@ -335,6 +342,21 @@ function buildTriggerUrls(baseHookUrl: string, workflowId: string) {
   }
 }
 
+function normalizeTriggerParameterKey(name: string, fallbackIndex: number) {
+  const normalized = String(name || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+  return normalized || `input_${fallbackIndex + 1}`
+}
+
+function createTqFileUrl() {
+  const random = Math.random().toString(16).slice(2)
+  const stamp = Date.now().toString(16)
+  return `tqfile://attachments/${stamp}-${random}`
+}
+
 function triggerNodeLabelForType(
   triggerType: (typeof TRIGGER_TYPE_OPTIONS)[number]['id'],
   integrationName?: string,
@@ -480,6 +502,11 @@ export function CanvasPage() {
   const [testRunMenuOpen, setTestRunMenuOpen] = useState(false)
   const [productionExecMenuOpen, setProductionExecMenuOpen] = useState(false)
   const [selectedTriggerEventId, setSelectedTriggerEventId] = useState(TEST_TRIGGER_EVENTS[0].id)
+  const [executeWorkflowModalOpen, setExecuteWorkflowModalOpen] = useState(false)
+  const [executeWorkflowSource, setExecuteWorkflowSource] = useState<'mock-output' | 'selected-step'>('mock-output')
+  const [executeWorkflowValues, setExecuteWorkflowValues] = useState<Record<string, string>>({})
+  const [executeWorkflowFiles, setExecuteWorkflowFiles] = useState<Record<string, { fileName: string; value: string }>>({})
+  const [executeWorkflowErrors, setExecuteWorkflowErrors] = useState<Record<string, string>>({})
   const [activeRunId, setActiveRunId] = useState<string | null>(null)
   const [runLogEntries, setRunLogEntries] = useState<WorkflowRunEntry[]>([
     {
@@ -518,6 +545,11 @@ export function CanvasPage() {
   const fitViewForPrintRef = useRef<(() => void) | null>(null)
 
   const currentWorkflow = workflows.find((item) => item.id === currentWorkflowId)
+  const triggerNode = nodes.find((item) => item.type === 'trigger')
+  const triggerNodeType = String(triggerNode?.data?.triggerType || 'on-demand')
+  const onDemandTriggerInputParameters: TriggerInputParameter[] = Array.isArray(triggerNode?.data?.triggerInputParameters)
+    ? (triggerNode?.data?.triggerInputParameters as TriggerInputParameter[])
+    : []
 
   const statusLabel =
     currentWorkflow?.status === 'published_enabled'
@@ -729,15 +761,47 @@ export function CanvasPage() {
     }
   }
 
-  const handleTestRun = (source: 'mock-output' | 'selected-step') => {
-    if (source === 'selected-step' && !selectedNode) {
-      window.alert('Select a step before running from selected step.')
-      return
-    }
-
+  const executeTestRunNow = (source: 'mock-output' | 'selected-step', eventPayload?: Record<string, any>) => {
     const workflowId = saveDraft()
     if (workflowId) {
       runWorkflowExecution(workflowId)
+    }
+
+    if (eventPayload && triggerNode) {
+      const eventId = `AA-${Math.floor(100000 + Math.random() * 899999)}`
+      const existingLog = Array.isArray(triggerNode.data?.triggerEventLog)
+        ? triggerNode.data.triggerEventLog
+        : []
+      const nextLog = [
+        {
+          id: eventId,
+          timestamp: Date.now(),
+          triggeredBy: 'D',
+          event: eventPayload,
+        },
+        ...existingLog,
+      ].slice(0, 90)
+
+      const nextNodes = nodes.map((item) =>
+        item.id === triggerNode.id
+          ? {
+              ...item,
+              data: {
+                ...(item.data || {}),
+                triggerEventLog: nextLog,
+                expandedEventLogId: eventId,
+              },
+            }
+          : item,
+      )
+      setNodes(nextNodes as any)
+      persistCurrentWorkflowGraph(nextNodes as any, edges)
+      if (selectedNode?.id === triggerNode.id) {
+        const updated = nextNodes.find((item) => item.id === triggerNode.id)
+        if (updated) {
+          selectNode(updated as any)
+        }
+      }
     }
 
     const selectedEvent = TEST_TRIGGER_EVENTS.find((item) => item.id === selectedTriggerEventId)
@@ -745,10 +809,78 @@ export function CanvasPage() {
       mode: 'test',
       source,
       executedBy: 'Tester',
-      nodeLabel: source === 'selected-step' ? String(selectedNode?.data?.label || 'Selected step') : selectedEvent?.label,
+      nodeLabel:
+        source === 'selected-step'
+          ? String(selectedNode?.data?.label || 'Selected step')
+          : eventPayload
+          ? 'On-demand trigger execution'
+          : selectedEvent?.label,
     })
     appendRunLogEntry(entry)
     setTestRunMenuOpen(false)
+  }
+
+  const openExecuteWorkflowModal = (source: 'mock-output' | 'selected-step') => {
+    const nextValues: Record<string, string> = {}
+    onDemandTriggerInputParameters.forEach((parameter) => {
+      nextValues[parameter.id] = ''
+    })
+    setExecuteWorkflowSource(source)
+    setExecuteWorkflowValues(nextValues)
+    setExecuteWorkflowFiles({})
+    setExecuteWorkflowErrors({})
+    setExecuteWorkflowModalOpen(true)
+    setTestRunMenuOpen(false)
+  }
+
+  const confirmExecuteWorkflowModal = () => {
+    const validationErrors: Record<string, string> = {}
+    onDemandTriggerInputParameters.forEach((parameter) => {
+      if (!parameter.required) return
+      if (parameter.type === 'File') {
+        if (!executeWorkflowFiles[parameter.id]?.value) {
+          validationErrors[parameter.id] = 'Required.'
+        }
+        return
+      }
+      if (!String(executeWorkflowValues[parameter.id] || '').trim()) {
+        validationErrors[parameter.id] = 'Required.'
+      }
+    })
+
+    if (Object.keys(validationErrors).length > 0) {
+      setExecuteWorkflowErrors(validationErrors)
+      return
+    }
+
+    const eventPayload = onDemandTriggerInputParameters.reduce<Record<string, any>>((acc, parameter, index) => {
+      const key = normalizeTriggerParameterKey(parameter.name, index)
+      if (parameter.type === 'File') {
+        acc[key] = executeWorkflowFiles[parameter.id]?.value || ''
+      } else {
+        acc[key] = String(executeWorkflowValues[parameter.id] || '')
+      }
+      return acc
+    }, { latest: true })
+
+    executeTestRunNow(executeWorkflowSource, eventPayload)
+    setExecuteWorkflowModalOpen(false)
+  }
+
+  const handleTestRun = (source: 'mock-output' | 'selected-step') => {
+    if (source === 'selected-step' && !selectedNode) {
+      window.alert('Select a step before running from selected step.')
+      return
+    }
+
+    const shouldPromptForOnDemandInputs =
+      triggerNodeType === 'on-demand' && onDemandTriggerInputParameters.length > 0
+    if (shouldPromptForOnDemandInputs) {
+      openExecuteWorkflowModal(source)
+      return
+    }
+
+    executeTestRunNow(source)
   }
 
   const handleProductionExecution = (source: 'resend-event' | 'sync-execution' | 'async-execution') => {
@@ -1210,6 +1342,115 @@ export function CanvasPage() {
         selectedNode && (
           <PropertiesPanel node={selectedNode} onEditStep={() => setEditingStep(selectedNode)} />
         )
+      )}
+
+      {executeWorkflowModalOpen && (
+        <div className="workflow-editor-modal" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: 540, background: '#2a2d33', border: '1px solid #3a3f47', borderRadius: 12, overflow: 'hidden' }}>
+            <div style={{ padding: '18px 22px', borderBottom: '1px solid #3a3f47', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ color: '#fff', fontSize: 36, fontWeight: 500 }}>Execute workflow</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                <button style={{ background: 'transparent', border: 'none', color: '#e2e8f0', fontSize: 20, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <ArrowRightLeft size={16} />
+                  <span style={{ fontSize: 24, fontWeight: 400 }}>Convert To JSON</span>
+                </button>
+                <button onClick={() => setExecuteWorkflowModalOpen(false)} style={{ background: 'transparent', border: 'none', color: '#e2e8f0', cursor: 'pointer' }}>
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+
+            <div style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {onDemandTriggerInputParameters.map((parameter, index) => {
+                const keyName = normalizeTriggerParameterKey(parameter.name, index)
+                const isFile = parameter.type === 'File'
+                return (
+                  <div key={parameter.id}>
+                    <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600, marginBottom: 8 }}>
+                      {parameter.name || `Input ${index + 1}`}
+                      {parameter.required && <span style={{ color: '#f87171', marginLeft: 4 }}>*</span>}
+                    </div>
+                    {isFile ? (
+                      <>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: '#17191e', border: `1px solid ${executeWorkflowErrors[parameter.id] ? '#dc2626' : '#333842'}`, borderRadius: 6, padding: '10px 12px', color: '#9ca3af', fontSize: 13, cursor: 'pointer' }}>
+                          <i className="fa-solid fa-cloud-arrow-up" />
+                          <span>{executeWorkflowFiles[parameter.id]?.fileName || 'Select file to upload'}</span>
+                          <input
+                            type="file"
+                            style={{ display: 'none' }}
+                            onChange={(event) => {
+                              const selected = event.target.files?.[0]
+                              if (!selected) return
+                              const nextTqFile = createTqFileUrl()
+                              setExecuteWorkflowFiles((prev) => ({
+                                ...prev,
+                                [parameter.id]: {
+                                  fileName: selected.name,
+                                  value: nextTqFile,
+                                },
+                              }))
+                              setExecuteWorkflowErrors((prev) => {
+                                const next = { ...prev }
+                                delete next[parameter.id]
+                                return next
+                              })
+                            }}
+                          />
+                        </label>
+                        {executeWorkflowErrors[parameter.id] && (
+                          <div style={{ marginTop: 6, color: '#f87171', fontSize: 12 }}>{executeWorkflowErrors[parameter.id]}</div>
+                        )}
+                        <div style={{ marginTop: 6, color: '#94a3b8', fontSize: 11, fontFamily: 'monospace' }}>
+                          {`{{ $.event.${keyName} }}`}
+                        </div>
+                        <div style={{ marginTop: 2, color: '#94a3b8', fontSize: 11, fontFamily: 'monospace' }}>
+                          {`{{ file $.event.${keyName} }}`}
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <input
+                          value={executeWorkflowValues[parameter.id] || ''}
+                          onChange={(event) => {
+                            const value = event.target.value
+                            setExecuteWorkflowValues((prev) => ({ ...prev, [parameter.id]: value }))
+                            setExecuteWorkflowErrors((prev) => {
+                              const next = { ...prev }
+                              delete next[parameter.id]
+                              return next
+                            })
+                          }}
+                          style={{ width: '100%', background: '#17191e', border: `1px solid ${executeWorkflowErrors[parameter.id] ? '#dc2626' : '#333842'}`, borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none' }}
+                        />
+                        {executeWorkflowErrors[parameter.id] && (
+                          <div style={{ marginTop: 6, color: '#f87171', fontSize: 12 }}>{executeWorkflowErrors[parameter.id]}</div>
+                        )}
+                        <div style={{ marginTop: 6, color: '#94a3b8', fontSize: 11, fontFamily: 'monospace' }}>
+                          {`{{ $.event.${keyName} }}`}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            <div style={{ borderTop: '1px solid #3a3f47', padding: '14px 22px', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button
+                onClick={() => setExecuteWorkflowModalOpen(false)}
+                style={{ background: '#06090f', border: '1px solid #e2e8f0', color: '#fff', borderRadius: 8, padding: '8px 18px', fontSize: 28, fontWeight: 500, cursor: 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmExecuteWorkflowModal}
+                style={{ background: '#e5e7eb', border: 'none', color: '#111827', borderRadius: 8, padding: '8px 18px', fontSize: 28, fontWeight: 500, cursor: 'pointer' }}
+              >
+                Execute
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {editingStep && (
@@ -2653,6 +2894,9 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const [scheduleWorkingHours, setScheduleWorkingHours] = useState(String(node.data?.scheduleWorkingHours || '08,09,10,11,12,13,14,15,16,17,18'))
   const [scheduleGuardTimezone, setScheduleGuardTimezone] = useState(String(node.data?.scheduleGuardTimezone || 'CET'))
   const [scheduleNestedWorkflowName, setScheduleNestedWorkflowName] = useState(String(node.data?.scheduleNestedWorkflowName || 'Should I run now working hour in workdays'))
+  const [triggerInputParameters, setTriggerInputParameters] = useState<TriggerInputParameter[]>(
+    Array.isArray(node.data?.triggerInputParameters) ? node.data.triggerInputParameters : [],
+  )
   const [systemEventType, setSystemEventType] = useState<(typeof SYSTEM_EVENT_OPTIONS)[number]['id']>(String(node.data?.systemEventType || 'request-for-review') as (typeof SYSTEM_EVENT_OPTIONS)[number]['id'])
   const [showSystemEventSelector, setShowSystemEventSelector] = useState(false)
   const [triggeredFrom, setTriggeredFrom] = useState<'anywhere' | 'nested-only'>(String(node.data?.triggeredFrom || 'anywhere') as 'anywhere' | 'nested-only')
@@ -2850,6 +3094,11 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
     persistNodeData({ triggerConditions: nextConditions })
   }
 
+  const updateTriggerInputParameters = (nextParams: TriggerInputParameter[]) => {
+    setTriggerInputParameters(nextParams)
+    persistNodeData({ triggerInputParameters: nextParams })
+  }
+
   const persistNodeData = (partial: Record<string, unknown>) => {
     const nextNodes = nodes.map((item) =>
       item.id === node.id
@@ -3022,6 +3271,7 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
     setScheduleWorkingHours(String(node.data?.scheduleWorkingHours || '08,09,10,11,12,13,14,15,16,17,18'))
     setScheduleGuardTimezone(String(node.data?.scheduleGuardTimezone || 'CET'))
     setScheduleNestedWorkflowName(String(node.data?.scheduleNestedWorkflowName || 'Should I run now working hour in workdays'))
+    setTriggerInputParameters(Array.isArray(node.data?.triggerInputParameters) ? node.data.triggerInputParameters : [])
     setSystemEventType(String(node.data?.systemEventType || 'request-for-review') as (typeof SYSTEM_EVENT_OPTIONS)[number]['id'])
     setShowSystemEventSelector(false)
     setTriggeredFrom(String(node.data?.triggeredFrom || 'anywhere') as 'anywhere' | 'nested-only')
@@ -3104,6 +3354,11 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
     setTriggerEventLog(initialLog as any)
     persistNodeData({ triggerEventLog: initialLog })
   }, [triggerType, systemEventType, node.id])
+
+  useEffect(() => {
+    if (!Array.isArray(node.data?.triggerEventLog)) return
+    setTriggerEventLog(node.data.triggerEventLog)
+  }, [node.data?.triggerEventLog])
   
   return (
     <div className="animate-fade-in workflow-editor-properties" style={{
@@ -3561,6 +3816,110 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                             </div>
                           </div>
                         )}
+                      </>
+                    )}
+
+                    {triggerType === 'on-demand' && (
+                      <>
+                        <div style={{ marginBottom: 12, color: '#9ca3af', fontSize: 12, lineHeight: 1.5 }}>
+                          Add trigger input parameters to collect values during Test Run. File inputs are exposed as non-shareable links in the trigger event.
+                        </div>
+
+                        <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>Trigger input parameters</div>
+                          <button
+                            onClick={() => {
+                              const next: TriggerInputParameter[] = [
+                                ...triggerInputParameters,
+                                {
+                                  id: `tip-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+                                  name: `input_${triggerInputParameters.length + 1}`,
+                                  type: 'Text',
+                                  required: false,
+                                },
+                              ]
+                              updateTriggerInputParameters(next)
+                            }}
+                            style={{ background: 'transparent', border: '1px solid #333842', color: '#e2e8f0', borderRadius: 6, padding: '4px 8px', fontSize: 11, cursor: 'pointer' }}
+                          >
+                            <i className="fa-solid fa-plus" style={{ marginRight: 6 }} /> Add
+                          </button>
+                        </div>
+
+                        {triggerInputParameters.length === 0 ? (
+                          <div style={{ marginBottom: 14, border: '1px dashed #333842', borderRadius: 8, padding: '10px 12px', color: '#9ca3af', fontSize: 12 }}>
+                            No trigger input parameters yet.
+                          </div>
+                        ) : (
+                          <div style={{ display: 'grid', gap: 10, marginBottom: 14 }}>
+                            {triggerInputParameters.map((parameter, index) => {
+                              const keyName = normalizeTriggerParameterKey(parameter.name, index)
+                              return (
+                                <div key={parameter.id} style={{ border: '1px solid #333842', borderRadius: 8, background: '#17191e', padding: 10 }}>
+                                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px auto', gap: 8, marginBottom: 8 }}>
+                                    <input
+                                      value={parameter.name}
+                                      onChange={(event) => {
+                                        const next = [...triggerInputParameters]
+                                        next[index] = { ...next[index], name: event.target.value }
+                                        updateTriggerInputParameters(next)
+                                      }}
+                                      placeholder="Parameter name"
+                                      style={{ width: '100%', background: '#0f1115', border: '1px solid #333842', borderRadius: 6, padding: '8px 10px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
+                                    />
+                                    <div style={{ position: 'relative' }}>
+                                      <select
+                                        value={parameter.type}
+                                        onChange={(event) => {
+                                          const value = event.target.value as 'Text' | 'File'
+                                          const next = [...triggerInputParameters]
+                                          next[index] = { ...next[index], type: value }
+                                          updateTriggerInputParameters(next)
+                                        }}
+                                        style={{ width: '100%', appearance: 'none', background: '#0f1115', border: '1px solid #333842', borderRadius: 6, padding: '8px 10px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
+                                      >
+                                        <option value="Text">Text</option>
+                                        <option value="File">File</option>
+                                      </select>
+                                      <ChevronDown size={14} color="#9ca3af" style={{ position: 'absolute', right: 10, top: 9, pointerEvents: 'none' }} />
+                                    </div>
+                                    <button
+                                      onClick={() => {
+                                        const next = triggerInputParameters.filter((_, pIndex) => pIndex !== index)
+                                        updateTriggerInputParameters(next)
+                                      }}
+                                      style={{ background: '#0f1115', border: '1px solid #333842', color: '#9ca3af', borderRadius: 6, padding: '8px 10px', fontSize: 11, cursor: 'pointer' }}
+                                    >
+                                      Remove
+                                    </button>
+                                  </div>
+
+                                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#e2e8f0', fontSize: 12, cursor: 'pointer', marginBottom: 8 }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={parameter.required}
+                                      onChange={(event) => {
+                                        const next = [...triggerInputParameters]
+                                        next[index] = { ...next[index], required: event.target.checked }
+                                        updateTriggerInputParameters(next)
+                                      }}
+                                    />
+                                    Required
+                                  </label>
+
+                                  <div style={{ color: '#94a3b8', fontSize: 11, fontFamily: 'monospace' }}>{`{{ $.event.${keyName} }}`}</div>
+                                  {parameter.type === 'File' && (
+                                    <div style={{ color: '#94a3b8', fontSize: 11, fontFamily: 'monospace', marginTop: 3 }}>{`{{ file $.event.${keyName} }}`}</div>
+                                  )}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
+
+                        <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.6 }}>
+                          File links are non-shareable Torq links. To pass files into nested workflows, use file URLs in the format <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>tqfile://steps/XXXXXXXXX</span>.
+                        </div>
                       </>
                     )}
 
