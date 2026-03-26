@@ -376,6 +376,22 @@ const EXECUTION_RESPONSE_CODES = [
   '500 Internal error',
 ]
 
+const TORQ_PROVISIONING_FLOW_STEPS = [
+  { key: 'create-workspace', label: 'Create a workspace', matcher: /create\s+a\s+workspace/i },
+  { key: 'generate-token', label: 'Generate Access Token', matcher: /generate\s+access\s+token/i },
+  { key: 'list-claims', label: 'List claim mappings', matcher: /list\s+claim\s+mappings/i },
+  { key: 'add-claim', label: 'Add a claim mapping', matcher: /add\s+a\s+claim\s+mapping/i },
+  { key: 'invite-user', label: 'Invite a new user', matcher: /invite\s+a\s+new\s+user|invite\s+new\s+user/i },
+  { key: 'create-integration', label: 'Create an integration', matcher: /create\s+an\s+integration/i },
+  { key: 'create-runner', label: 'Create step runner', matcher: /create\s+step\s+runner/i },
+  { key: 'list-workflows', label: 'List workflows', matcher: /list\s+workflows/i },
+  { key: 'retrieve-workflow', label: 'Retrieve a workflow', matcher: /retrieve\s+a\s+workflow|retrieve\s+workflow/i },
+  { key: 'retrieve-revision', label: 'Retrieve a revision', matcher: /retrieve\s+a\s+revision|retrieve\s+revision/i },
+  { key: 'import-workflow', label: 'Import a workflow', matcher: /import\s+a\s+workflow|import\s+workflow/i },
+  { key: 'publish-workflow', label: 'Publish a workflow', matcher: /publish\s+a\s+workflow|publish\s+workflow/i },
+  { key: 'add-tag', label: 'Add a tag', matcher: /add\s+a\s+tag|add\s+tag/i },
+] as const
+
 const RUN_SOURCE_LABEL: Record<WorkflowRunEntry['source'], string> = {
   'mock-output': 'Mock outputs',
   'selected-step': 'From selected step',
@@ -702,6 +718,7 @@ export function CanvasPage() {
   const [search, setSearch] = useState('')
   const [operatorSearch, setOperatorSearch] = useState('')
   const [builderSection, setBuilderSection] = useState<BuilderSectionId>('integrations')
+  const [builderPanelOpen, setBuilderPanelOpen] = useState(true)
   const [editingStep, setEditingStep] = useState<any | null>(null)
   const [publishOpen, setPublishOpen] = useState(false)
   const [publishMenuOpen, setPublishMenuOpen] = useState(false)
@@ -1248,19 +1265,28 @@ export function CanvasPage() {
   }, [activeRunId, runLogEntries])
 
   return (
-    <div className="workflow-canvas-page" style={{ display: 'flex', height: '100vh', width: '100%', background: '#0e1015', overflow: 'hidden' }}>
+    <div className="workflow-canvas-page" style={{ display: 'flex', height: '100vh', width: '100%', background: '#0e1015', overflow: 'hidden', position: 'relative' }}>
       
       {/* ── Left Sidebar ───────────────────────────────────────── */}
       <div className="workflow-editor-sidebar" style={{
-        width: 320, background: '#1c1e23', borderRight: '1px solid #2a2e35',
-        display: 'flex', flexDirection: 'column', flexShrink: 0,
-        boxShadow: '4px 0 20px rgba(0,0,0,0.4)', zIndex: 10,
-        overflow: 'hidden'
+        width: 340,
+        background: 'transparent',
+        borderRight: 'none',
+        display: 'flex',
+        flexDirection: 'column',
+        flexShrink: 0,
+        zIndex: 24,
+        overflow: 'hidden',
+        position: 'absolute',
+        left: 14,
+        top: 84,
+        bottom: 14,
+        pointerEvents: 'auto',
       }}>
         {viewMode === 'designer' ? (
           <div key="designer" className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
             <div style={{ display: 'flex', flex: 1, minHeight: 0, padding: 12, gap: 10 }}>
-              <div style={{ width: 84, background: '#252830', border: '1px solid #333842', borderRadius: 14, padding: '10px 8px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+              <div style={{ width: 84, background: '#252830', border: '1px solid #333842', borderRadius: 14, padding: '10px 8px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, boxShadow: '0 16px 30px rgba(0,0,0,0.35)' }}>
                 <button style={{ width: 44, height: 44, borderRadius: '50%', border: '1px solid #4b5563', background: '#1c1e23', color: '#e2e8f0', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 6 }}>
                   <Search size={18} />
                 </button>
@@ -1269,7 +1295,12 @@ export function CanvasPage() {
                   <button
                     key={section.id}
                     onClick={() => {
+                      if (builderSection === section.id && builderPanelOpen) {
+                        setBuilderPanelOpen(false)
+                        return
+                      }
                       setBuilderSection(section.id)
+                      setBuilderPanelOpen(true)
                       setSearch('')
                     }}
                     title={section.label}
@@ -1293,7 +1324,21 @@ export function CanvasPage() {
                 ))}
               </div>
 
-              <div style={{ flex: 1, minWidth: 0, background: '#252830', border: '1px solid #333842', borderRadius: 14, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+              <div style={{
+                width: builderPanelOpen ? 232 : 0,
+                minWidth: builderPanelOpen ? 232 : 0,
+                opacity: builderPanelOpen ? 1 : 0,
+                transform: builderPanelOpen ? 'translateX(0)' : 'translateX(-12px)',
+                transition: 'width 0.26s ease, min-width 0.26s ease, opacity 0.2s ease, transform 0.26s ease',
+                background: '#252830',
+                border: '1px solid #333842',
+                borderRadius: 14,
+                display: 'flex',
+                flexDirection: 'column',
+                overflow: 'hidden',
+                pointerEvents: builderPanelOpen ? 'auto' : 'none',
+                boxShadow: builderPanelOpen ? '0 16px 30px rgba(0,0,0,0.35)' : 'none',
+              }}>
                 <div style={{ padding: '14px 14px 10px', borderBottom: '1px solid #333842' }}>
                   <div style={{ color: '#e2e8f0', fontSize: 14, fontWeight: 700, marginBottom: 8 }}>
                     {BUILDER_SECTIONS.find((item) => item.id === builderSection)?.label}
@@ -1376,7 +1421,7 @@ export function CanvasPage() {
             </div>
           </div>
         ) : (
-          <div key="runlog" className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+          <div key="runlog" className="animate-fade-in" style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', background: '#1c1e23', border: '1px solid #2a2e35', borderRadius: 14, boxShadow: '0 16px 30px rgba(0,0,0,0.35)' }}>
             <div style={{ padding: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: '#fff', fontSize: 14, fontWeight: 600 }}>
               Run Log (last 7 days, max 30) <RefreshCcw size={14} color="#9ca3af" style={{cursor: 'pointer'}} />
             </div>
@@ -1426,9 +1471,10 @@ export function CanvasPage() {
         <ReactFlowProvider>
           <WorkflowCanvasWrapper addNode={addNode as any} onPrintReady={registerPrintFitView} onAddAnnotation={addAnnotationAtPosition}>
             {/* Top Header Toggle & Breadcrumb */}
-            <Panel position="top-left" className="workflow-editor-chrome" style={{ margin: 0, width: '100%', pointerEvents: 'none', zIndex: 10 }}>
-              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 126, display: 'flex', alignItems: 'flex-start', justifyContent: 'center' }}>
-                <div style={{ position: 'absolute', left: 24, top: 78, pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: 12, color: '#e2e8f0', fontSize: 14, fontWeight: 500, maxWidth: isCompactTopHeader ? '280px' : '520px', minWidth: 0 }}>
+            <Panel position="top-left" className="workflow-editor-chrome" style={{ margin: 0, width: '100%', pointerEvents: 'none', zIndex: 22 }}>
+              <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 84, display: 'flex', alignItems: 'flex-start', justifyContent: 'center' }}>
+                <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 72, background: 'rgba(28,30,35,0.9)', borderBottom: '1px solid #333842', boxShadow: '0 10px 24px rgba(0,0,0,0.35)', backdropFilter: 'blur(6px)' }} />
+                <div style={{ position: 'absolute', left: 24, top: 20, pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: 12, color: '#e2e8f0', fontSize: 14, fontWeight: 500, maxWidth: isCompactTopHeader ? '280px' : '520px', minWidth: 0 }}>
                   <div style={{ width: 28, height: 28, background: '#fff', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <i className="fa-solid fa-code-branch" style={{ color: '#000', fontSize: 14 }} />
                   </div>
@@ -1437,7 +1483,7 @@ export function CanvasPage() {
                   </div>
                 </div>
                 
-                <div style={{ pointerEvents: 'auto', marginTop: 10, background: '#1c1e23', border: '1px solid #333842', borderRadius: 8, padding: 4, display: 'flex', gap: 4 }}>
+                <div style={{ pointerEvents: 'auto', marginTop: 14, background: '#1c1e23', border: '1px solid #333842', borderRadius: 8, padding: 4, display: 'flex', gap: 4 }}>
                   <button 
                     onClick={() => setViewMode('designer')}
                     style={{ padding: '6px 20px', background: viewMode === 'designer' ? '#333842' : 'transparent', border: 'none', borderRadius: 6, color: viewMode === 'designer' ? '#fff' : '#9ca3af', fontSize: 13, fontWeight: 600, cursor: 'pointer', transition: 'all 0.2s ease' }}>
@@ -1460,7 +1506,7 @@ export function CanvasPage() {
                   )
                 })()}
 
-                <div style={{ position: 'absolute', right: 24, top: 70, pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: isCompactTopHeader ? 8 : 12, maxWidth: isCompactTopHeader ? '66vw' : '72vw' }}>
+                <div style={{ position: 'absolute', right: 24, top: 16, pointerEvents: 'auto', display: 'flex', alignItems: 'center', gap: isCompactTopHeader ? 8 : 12, maxWidth: isCompactTopHeader ? '66vw' : '72vw' }}>
                   {!isCompactTopHeader && (
                     <select
                       value={currentUserRole}
@@ -3500,6 +3546,7 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const [expandedCategory, setExpandedCategory] = useState<string | null>('String Manipulation')
   const [activeField, setActiveField] = useState<'recipient' | 'message' | 'addjson' | null>(null)
   const [pickerOpenFor, setPickerOpenFor] = useState<'recipient' | 'message' | 'addjson' | null>(null)
+  const [provisioningValidationAt, setProvisioningValidationAt] = useState<number>(Date.now())
   const [autocomplete, setAutocomplete] = useState<{
     field: 'recipient' | 'message' | 'addjson'
     start: number
@@ -3632,6 +3679,38 @@ isPrivate: false`
   const torqWorkflowYamlPath = String(node.data?.torqWorkflowYamlPath || '{{ $.retrieve_a_revision.api_object.yaml }}')
   const torqPublishAfterImport = Boolean(node.data?.torqPublishAfterImport ?? true)
   const torqTagNamePath = String(node.data?.torqTagNamePath || '{{ $.loop_value.tag }}')
+  const provisioningChecklist = TORQ_PROVISIONING_FLOW_STEPS.map((step) => ({
+    ...step,
+    present: nodes.some((item) => step.matcher.test(`${String(item.data?.label || '')} ${String(item.data?.subtext || '')}`)),
+  }))
+  const provisioningMissingCount = provisioningChecklist.filter((item) => !item.present).length
+  const currentProvisioningFieldIssues: string[] = []
+
+  if (isTorqCreateWorkspaceStep && !torqWorkspaceNamePath.trim()) {
+    currentProvisioningFieldIssues.push('workspace_name path is required.')
+  }
+  if (isTorqGenerateAccessTokenStep) {
+    if (!torqWorkspaceClientIdPath.trim()) currentProvisioningFieldIssues.push('Client ID path is required.')
+    if (!torqWorkspaceClientSecretPath.trim()) currentProvisioningFieldIssues.push('Client secret path is required.')
+  }
+  if (isTorqAddClaimMappingStep) {
+    if (!torqClaimNamePath.trim()) currentProvisioningFieldIssues.push('Claim name path is required.')
+    if (!torqClaimValuePath.trim()) currentProvisioningFieldIssues.push('Claim value path is required.')
+  }
+  if (isTorqInviteNewUserStep) {
+    if (!torqInviteUserEmailPath.trim()) currentProvisioningFieldIssues.push('User email path is required.')
+    if (!torqInviteUserRoleIdPath.trim()) currentProvisioningFieldIssues.push('Role ID path is required.')
+  }
+  if (isTorqCreateIntegrationStep) {
+    if (!torqIntegrationName.trim()) currentProvisioningFieldIssues.push('Integration name is required.')
+    if (!torqIntegrationType.trim()) currentProvisioningFieldIssues.push('Integration type is required.')
+  }
+  if (isTorqCreateStepRunnerStep && !torqRunnerDisplayNamePath.trim()) {
+    currentProvisioningFieldIssues.push('Step runner display name path is required.')
+  }
+  if ((isTorqImportWorkflowStep || isTorqRetrieveRevisionStep) && !torqWorkflowYamlPath.trim()) {
+    currentProvisioningFieldIssues.push('Workflow YAML path is required.')
+  }
 
   const copyText = async (value: string) => {
     try {
@@ -6433,6 +6512,44 @@ isPrivate: false`
                   <strong style={{ color: '#e2e8f0' }}>Torq integration auth</strong><br />
                   Select <span style={{ color: '#e2e8f0' }}>Set values separately</span> and pass the access token path:<br />
                   <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{torqWorkspaceAccessTokenPath}</span>
+                </div>
+
+                <div style={{ marginBottom: 14, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <div style={{ color: '#e2e8f0', fontSize: 12, fontWeight: 700 }}>Provisioning parity check</div>
+                    <button
+                      onClick={() => setProvisioningValidationAt(Date.now())}
+                      style={{ background: '#0f1115', border: '1px solid #333842', color: '#e2e8f0', borderRadius: 6, padding: '4px 8px', fontSize: 11, cursor: 'pointer' }}
+                    >
+                      <i className="fa-solid fa-rotate-right" style={{ marginRight: 6 }} /> Re-check
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'grid', gap: 5, marginBottom: 8 }}>
+                    {provisioningChecklist.map((item) => (
+                      <div key={item.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: item.present ? '#86efac' : '#fca5a5', fontSize: 11 }}>
+                        <span>{item.label}</span>
+                        <span>{item.present ? '✔' : '✖'}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {currentProvisioningFieldIssues.length > 0 && (
+                    <div style={{ marginBottom: 8, borderTop: '1px solid #333842', paddingTop: 8, display: 'grid', gap: 4 }}>
+                      {currentProvisioningFieldIssues.map((issue) => (
+                        <div key={issue} style={{ color: '#fca5a5', fontSize: 11 }}>• {issue}</div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div style={{ color: provisioningMissingCount === 0 && currentProvisioningFieldIssues.length === 0 ? '#86efac' : '#facc15', fontSize: 11 }}>
+                    {provisioningMissingCount === 0 && currentProvisioningFieldIssues.length === 0
+                      ? 'Flow looks aligned with the workspace provisioning template.'
+                      : `${provisioningMissingCount} missing step(s), ${currentProvisioningFieldIssues.length} field issue(s).`}
+                  </div>
+                  <div style={{ color: '#94a3b8', fontSize: 10, marginTop: 4 }}>
+                    Last checked: {new Date(provisioningValidationAt).toLocaleTimeString()}
+                  </div>
                 </div>
               </>
             ) : isMessageLikeStep ? (
