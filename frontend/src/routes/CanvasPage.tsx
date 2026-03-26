@@ -1131,6 +1131,44 @@ const DEFAULT_ESCAPE_JSON_INPUT = '{{ $.raw_data.output }}'
 const DEFAULT_PYTHON_INPUT = '{{ jsonescape $.raw_data.output }}'
 const DEFAULT_CURLY_ESCAPE_STATIC = '{{`{{THIS WILL BE PRINTED INSIDE}}`}}'
 const DEFAULT_CURLY_ESCAPE_EXPRESSION = '{{`{{{{$.sample_output.api_object.updated}}}}`}}'
+const DEFAULT_NESTED_CONTEXT_STEP = '{{ $.step_1.{{ $.step_2.key_2 }}.inner_key_2 }}'
+const DEFAULT_NESTED_CONTEXT_INTEGRATION =
+  '{{ $.integrations.{{ $.some_step.required_integration_name }}.some_value_from_the_integration }}'
+const DEFAULT_DATETIME_BASE_FORMAT = '%Y-%m-%dT%H:%M:%S:%f'
+const DEFAULT_ADVANCED_TEMPLATE = '{{ len $.hosts }}'
+const DEFAULT_URLQUERY_SOURCE = 'https://www.torq.io/?q=security automation'
+
+const SAMPLE_HOSTS_CONTEXT = {
+  hosts: [
+    {
+      name: 'host1',
+      interfaces: [
+        { name: 'Interface 1 of Host 1', address: '10.10.10.1', weight: 10 },
+        { name: 'Interface 2 of Host 1', address: '10.10.10.2', weight: 20 },
+      ],
+    },
+    {
+      name: 'host2',
+      interfaces: [
+        { name: 'Interface 1 of Host 2', address: '20.20.20.1', weight: 10 },
+        { name: 'Interface 2 of Host 2', address: '20.20.20.2', weight: 20 },
+        { name: 'Interface 3 of Host 2', address: '20.20.20.3', weight: 30 },
+      ],
+    },
+  ],
+}
+
+const ADVANCED_TEMPLATE_EXAMPLES = [
+  { label: 'len', template: '{{ len $.hosts }}' },
+  { label: 'index', template: '{{ (index (index $.hosts 0).interfaces 0).name }}' },
+  { label: 'bracket', template: '{{ $.hosts[0].interfaces[0].name }}' },
+  { label: 'slice', template: '{{ $.hosts[1].interfaces[:2][1].name }}' },
+  { label: 'filter', template: '{{ $.hosts[1].interfaces[?(@.weight > 10)][0].name }}' },
+  { label: 'regex', template: '{{ $.hosts[1].interfaces[?(@.name=~ /(Interface [23])/)] }}' },
+  { label: 'if/else', template: '{{ if (gt (len $.hosts) 1) -}} Multiple hosts found {{- else -}} Single host found {{- end}}' },
+  { label: 'range', template: 'We currently have {{ len $.hosts }} hosts and their names are: {{ range $index, $host:= $.hosts }} {{ $host.name }} {{ end }}' },
+  { label: 'urlquery', template: '{{ urlquery $.unescaped_url.result }}' },
+]
 const DEFAULT_PYTHON_SCRIPT = [
   'import json',
   '',
@@ -1143,16 +1181,65 @@ function jsonEscapeInlineValue(value: string) {
   return JSON.stringify(value).slice(1, -1)
 }
 
-function buildAddToJsonPreview(input: string, rawData: string) {
-  const withEscapedRawData = input.replace(
-    /\{\{\s*jsonescape\s+[^}]+\}\}/gi,
-    jsonEscapeInlineValue(rawData),
-  )
+function replaceTemplateExpressions(
+  input: string,
+  replacer: (expressionBody: string) => string,
+) {
+  let index = 0
+  let output = ''
 
-  const withContextValues = withEscapedRawData.replace(
-    /\{\{\s*[^}]+\}\}/g,
-    '"context_value"',
-  )
+  while (index < input.length) {
+    const start = input.indexOf('{{', index)
+    if (start < 0) {
+      output += input.slice(index)
+      break
+    }
+
+    output += input.slice(index, start)
+
+    let cursor = start + 2
+    let depth = 1
+    while (cursor < input.length && depth > 0) {
+      const token = input.slice(cursor, cursor + 2)
+      if (token === '{{') {
+        depth += 1
+        cursor += 2
+        continue
+      }
+      if (token === '}}') {
+        depth -= 1
+        if (depth === 0) break
+        cursor += 2
+        continue
+      }
+      cursor += 1
+    }
+
+    if (depth !== 0) {
+      output += input.slice(start)
+      break
+    }
+
+    const expressionBody = input.slice(start + 2, cursor).trim()
+    output += replacer(expressionBody)
+    index = cursor + 2
+  }
+
+  return output
+}
+
+function buildAddToJsonPreview(input: string, rawData: string) {
+  const withContextValues = replaceTemplateExpressions(input, (expressionBody) => {
+    if (/^jsonescape\s+/i.test(expressionBody)) {
+      const argument = expressionBody.replace(/^jsonescape\s+/i, '').trim()
+      if (argument.includes('$.raw_data.output')) {
+        return jsonEscapeInlineValue(rawData)
+      }
+      return jsonEscapeInlineValue('context_value')
+    }
+
+    return '"context_value"'
+  })
 
   try {
     const parsed = JSON.parse(withContextValues)
@@ -1188,9 +1275,103 @@ function parseCurlyEscapePassThrough(value: string) {
   }
 }
 
+const FRACTIONAL_SECOND_OPTIONS = [
+  { id: '1', label: 'Decisecond', digits: 1, token: '%1f' },
+  { id: '2', label: 'Centisecond', digits: 2, token: '%2f' },
+  { id: '3', label: 'Millisecond', digits: 3, token: '%3f' },
+  { id: '6', label: 'Microsecond', digits: 6, token: '%6f' },
+  { id: '9', label: 'Nanosecond', digits: 9, token: '%f' },
+]
+
+function formatDateWithPrecision(date: Date, precisionDigits: number) {
+  const milliseconds = date.getMilliseconds()
+  const nanos = String(milliseconds * 1_000_000).padStart(9, '0')
+  return nanos.slice(0, precisionDigits)
+}
+
+function buildDateTimeFormatWithPrecision(baseFormat: string, precisionDigits: number) {
+  const token = precisionDigits === 9 ? '%f' : `%${precisionDigits}f`
+  return baseFormat.replace(/%\d?f|%f/g, token)
+}
+
+function renderDateTimePreview(format: string, precisionDigits: number) {
+  const date = new Date()
+
+  const year = String(date.getFullYear())
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  const hour = String(date.getHours()).padStart(2, '0')
+  const minute = String(date.getMinutes()).padStart(2, '0')
+  const second = String(date.getSeconds()).padStart(2, '0')
+  const fraction = formatDateWithPrecision(date, precisionDigits)
+
+  return format
+    .replace('%Y', year)
+    .replace('%m', month)
+    .replace('%d', day)
+    .replace('%H', hour)
+    .replace('%M', minute)
+    .replace('%S', second)
+    .replace(/%\d?f|%f/g, fraction)
+}
+
+function applyUrlQueryEncoding(value: string) {
+  return encodeURIComponent(value).replace(/%20/g, '+')
+}
+
+function renderAdvancedTemplatePreview(template: string, urlSource: string) {
+  const t = template.trim()
+
+  if (t === '{{ len $.hosts }}') {
+    return String(SAMPLE_HOSTS_CONTEXT.hosts.length)
+  }
+
+  if (t === '{{ (index (index $.hosts 0).interfaces 0).name }}') {
+    return SAMPLE_HOSTS_CONTEXT.hosts[0].interfaces[0].name
+  }
+
+  if (t === '{{ $.hosts[0].interfaces[0].name }}') {
+    return SAMPLE_HOSTS_CONTEXT.hosts[0].interfaces[0].name
+  }
+
+  if (t === '{{ $.hosts[1].interfaces[:2][1].name }}') {
+    return SAMPLE_HOSTS_CONTEXT.hosts[1].interfaces.slice(0, 2)[1].name
+  }
+
+  if (t === '{{ $.hosts[1].interfaces[?(@.weight > 10)][0].name }}') {
+    return SAMPLE_HOSTS_CONTEXT.hosts[1].interfaces.filter((item) => item.weight > 10)[0].name
+  }
+
+  if (t === '{{ $.hosts[1].interfaces[?(@.name=~ /(Interface [23])/)] }}') {
+    return JSON.stringify(
+      SAMPLE_HOSTS_CONTEXT.hosts[1].interfaces.filter((item) => /(Interface [23])/.test(item.name)),
+      null,
+      2,
+    )
+  }
+
+  if (t === '{{ if (gt (len $.hosts) 1) -}} Multiple hosts found {{- else -}} Single host found {{- end}}') {
+    return SAMPLE_HOSTS_CONTEXT.hosts.length > 1 ? 'Multiple hosts found' : 'Single host found'
+  }
+
+  if (t === 'We currently have {{ len $.hosts }} hosts and their names are: {{ range $index, $host:= $.hosts }} {{ $host.name }} {{ end }}') {
+    return `We currently have ${SAMPLE_HOSTS_CONTEXT.hosts.length} hosts and their names are: ${SAMPLE_HOSTS_CONTEXT.hosts
+      .map((host) => host.name)
+      .join(' ')}`
+  }
+
+  if (t === '{{ urlquery $.unescaped_url.result }}') {
+    return applyUrlQueryEncoding(urlSource)
+  }
+
+  return 'Preview is available for built-in examples. Insert an example above to evaluate output.'
+}
+
 function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => void }) {
   const isTrigger = node.type === 'trigger'
   const isMessageLikeStep = /message|slack|ticket|log/i.test(String(node.data?.label || ''))
+  const isDateTimeStep = /date|time|datetime|timestamp/i.test(String(node.data?.label || ''))
+  const isAdvancedTemplateStep = /template|golang|urlquery|print/i.test(String(node.data?.label || ''))
   const isCurlyEscapeStep = /escape\s*\{\}/i.test(String(node.data?.label || ''))
   const isRawDataStep = /raw data/i.test(String(node.data?.label || ''))
   const isAddToJsonStep = /add to json/i.test(String(node.data?.label || ''))
@@ -1207,6 +1388,10 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const [escapeJsonInput, setEscapeJsonInput] = useState(String(node.data?.escapeJsonInput || DEFAULT_ESCAPE_JSON_INPUT))
   const [pythonInput, setPythonInput] = useState(String(node.data?.pythonInput || DEFAULT_PYTHON_INPUT))
   const [pythonScript, setPythonScript] = useState(String(node.data?.pythonScript || DEFAULT_PYTHON_SCRIPT))
+  const [dateTimeBaseFormat, setDateTimeBaseFormat] = useState(String(node.data?.dateTimeBaseFormat || DEFAULT_DATETIME_BASE_FORMAT))
+  const [fractionalDigits, setFractionalDigits] = useState<number>(Number(node.data?.fractionalDigits || 9))
+  const [advancedTemplateInput, setAdvancedTemplateInput] = useState(String(node.data?.advancedTemplateInput || DEFAULT_ADVANCED_TEMPLATE))
+  const [urlQuerySource, setUrlQuerySource] = useState(String(node.data?.urlQuerySource || DEFAULT_URLQUERY_SOURCE))
   const [activeField, setActiveField] = useState<'recipient' | 'message' | 'addjson' | null>(null)
   const [pickerOpenFor, setPickerOpenFor] = useState<'recipient' | 'message' | 'addjson' | null>(null)
   const [autocomplete, setAutocomplete] = useState<{
@@ -1309,6 +1494,52 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
     setAutocomplete(null)
     setPickerOpenFor(null)
   }
+
+  const insertLiteralTemplate = (
+    template: string,
+    field: 'recipient' | 'message' | 'addjson',
+  ) => {
+    const sourceValue =
+      field === 'recipient' ? recipient : field === 'message' ? messageText : addJsonInput
+    const inputRef =
+      field === 'recipient'
+        ? recipientRef.current
+        : field === 'message'
+        ? messageRef.current
+        : addJsonRef.current
+    const start = inputRef?.selectionStart ?? sourceValue.length
+    const end = inputRef?.selectionEnd ?? start
+    const nextValue = sourceValue.slice(0, start) + template + sourceValue.slice(end)
+
+    if (field === 'recipient') {
+      setRecipient(nextValue)
+      persistNodeData({ recipient: nextValue })
+      setTimeout(() => {
+        recipientRef.current?.focus()
+        const nextCursor = start + template.length
+        recipientRef.current?.setSelectionRange(nextCursor, nextCursor)
+      }, 0)
+    } else if (field === 'message') {
+      setMessageText(nextValue)
+      persistNodeData({ messageText: nextValue })
+      setTimeout(() => {
+        messageRef.current?.focus()
+        const nextCursor = start + template.length
+        messageRef.current?.setSelectionRange(nextCursor, nextCursor)
+      }, 0)
+    } else {
+      setAddJsonInput(nextValue)
+      persistNodeData({ addJsonInput: nextValue })
+      setTimeout(() => {
+        addJsonRef.current?.focus()
+        const nextCursor = start + template.length
+        addJsonRef.current?.setSelectionRange(nextCursor, nextCursor)
+      }, 0)
+    }
+
+    setAutocomplete(null)
+    setPickerOpenFor(null)
+  }
   
   useEffect(() => {
     setIsHttpMode(false)
@@ -1324,6 +1555,10 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
     setEscapeJsonInput(String(node.data?.escapeJsonInput || DEFAULT_ESCAPE_JSON_INPUT))
     setPythonInput(String(node.data?.pythonInput || DEFAULT_PYTHON_INPUT))
     setPythonScript(String(node.data?.pythonScript || DEFAULT_PYTHON_SCRIPT))
+    setDateTimeBaseFormat(String(node.data?.dateTimeBaseFormat || DEFAULT_DATETIME_BASE_FORMAT))
+    setFractionalDigits(Number(node.data?.fractionalDigits || 9))
+    setAdvancedTemplateInput(String(node.data?.advancedTemplateInput || DEFAULT_ADVANCED_TEMPLATE))
+    setUrlQuerySource(String(node.data?.urlQuerySource || DEFAULT_URLQUERY_SOURCE))
     setAutocomplete(null)
     setActiveField(null)
     setPickerOpenFor(null)
@@ -1647,6 +1882,148 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                 <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.5 }}>
                   Use workflow context in inputs: <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ $.event.user.firstName }}'}</span> or <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{'{{ $.metadata.execution_id }}'}</span>
                 </div>
+
+                <div style={{ marginBottom: 16, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button
+                    onClick={() => insertLiteralTemplate(DEFAULT_NESTED_CONTEXT_STEP, 'message')}
+                    style={{ background: '#17191e', border: '1px solid #333842', color: '#cbd5e1', borderRadius: 6, padding: '6px 10px', fontSize: 11, cursor: 'pointer' }}
+                  >
+                    Insert nested step key
+                  </button>
+                  <button
+                    onClick={() => insertLiteralTemplate(DEFAULT_NESTED_CONTEXT_INTEGRATION, 'message')}
+                    style={{ background: '#17191e', border: '1px solid #333842', color: '#cbd5e1', borderRadius: 6, padding: '6px 10px', fontSize: 11, cursor: 'pointer' }}
+                  >
+                    Insert dynamic integration key
+                  </button>
+                </div>
+              </>
+            ) : isDateTimeStep ? (
+              <>
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>DateTime format</div>
+                  <input
+                    value={dateTimeBaseFormat}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      setDateTimeBaseFormat(value)
+                      persistNodeData({ dateTimeBaseFormat: value })
+                    }}
+                    placeholder="%Y-%m-%dT%H:%M:%S:%f"
+                    style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 13, outline: 'none', fontFamily: 'monospace' }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Fractional seconds precision</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    {FRACTIONAL_SECOND_OPTIONS.map((option) => (
+                      <button
+                        key={option.id}
+                        onClick={() => {
+                          setFractionalDigits(option.digits)
+                          persistNodeData({ fractionalDigits: option.digits })
+                        }}
+                        style={{
+                          background: fractionalDigits === option.digits ? '#334155' : '#17191e',
+                          border: '1px solid #333842',
+                          color: '#e2e8f0',
+                          borderRadius: 6,
+                          padding: '8px 10px',
+                          fontSize: 12,
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                        }}
+                      >
+                        <div style={{ fontWeight: 600 }}>{option.label}</div>
+                        <div style={{ color: '#94a3b8', fontFamily: 'monospace', fontSize: 11 }}>{option.token}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {(() => {
+                  const computedFormat = buildDateTimeFormatWithPrecision(dateTimeBaseFormat, fractionalDigits)
+                  const preview = renderDateTimePreview(computedFormat, fractionalDigits)
+                  return (
+                    <>
+                      <div style={{ marginBottom: 10 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Computed format</div>
+                        <div style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, fontFamily: 'monospace' }}>
+                          {computedFormat}
+                        </div>
+                      </div>
+
+                      <div style={{ marginBottom: 16 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Preview output</div>
+                        <div style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#86efac', fontSize: 12, fontFamily: 'monospace' }}>
+                          {preview}
+                        </div>
+                      </div>
+                    </>
+                  )
+                })()}
+
+                <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.5 }}>
+                  By default <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>%f</span> returns nanoseconds (9 digits). Use <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>%1f</span>, <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>%2f</span>, <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>%3f</span>, or <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>%6f</span> to match external system requirements.
+                </div>
+              </>
+            ) : isAdvancedTemplateStep ? (
+              <>
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Template input</div>
+                  <textarea
+                    value={advancedTemplateInput}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      setAdvancedTemplateInput(value)
+                      persistNodeData({ advancedTemplateInput: value })
+                    }}
+                    style={{ width: '100%', minHeight: 120, background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
+                  />
+                </div>
+
+                <div style={{ marginBottom: 16, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {ADVANCED_TEMPLATE_EXAMPLES.map((example) => (
+                    <button
+                      key={example.label}
+                      onClick={() => {
+                        setAdvancedTemplateInput(example.template)
+                        persistNodeData({ advancedTemplateInput: example.template })
+                      }}
+                      style={{ background: '#17191e', border: '1px solid #333842', color: '#cbd5e1', borderRadius: 6, padding: '6px 10px', fontSize: 11, cursor: 'pointer' }}
+                    >
+                      {example.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>urlquery source (troubleshooting)</div>
+                  <input
+                    value={urlQuerySource}
+                    onChange={(event) => {
+                      const value = event.target.value
+                      setUrlQuerySource(value)
+                      persistNodeData({ urlQuerySource: value })
+                    }}
+                    style={{ width: '100%', background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', fontFamily: 'monospace' }}
+                  />
+                  <div style={{ marginTop: 8, color: '#9ca3af', fontSize: 11 }}>
+                    Encoded: <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{applyUrlQueryEncoding(urlQuerySource)}</span>
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Preview output</div>
+                  <div style={{ width: '100%', minHeight: 96, background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#86efac', fontSize: 12, fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
+                    {renderAdvancedTemplatePreview(advancedTemplateInput, urlQuerySource)}
+                  </div>
+                </div>
+
+                <div style={{ marginBottom: 16, padding: '10px 12px', borderRadius: 6, border: '1px solid #333842', background: '#17191e', color: '#9ca3af', fontSize: 11, lineHeight: 1.5 }}>
+                  Includes advanced JSONPath and Golang template helpers for <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>len</span>, <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>index</span>, slicing/filtering, <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>range</span>, <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>if/else</span>, and <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>urlquery</span>.
+                </div>
               </>
             ) : isCurlyEscapeStep ? (
               <>
@@ -1746,6 +2123,18 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                   <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                     <span>INPUT</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <button
+                        onClick={() => insertLiteralTemplate(DEFAULT_NESTED_CONTEXT_STEP, 'addjson')}
+                        style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}
+                      >
+                        Nested key
+                      </button>
+                      <button
+                        onClick={() => insertLiteralTemplate(DEFAULT_NESTED_CONTEXT_INTEGRATION, 'addjson')}
+                        style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4, fontSize: 11 }}
+                      >
+                        Dynamic integration
+                      </button>
                       <button
                         onClick={() => {
                           setAddJsonInput(DEFAULT_ADD_TO_JSON_INPUT)
