@@ -3,6 +3,7 @@ import { Zap } from 'lucide-react'
 
 export function TriggerNode({ data, selected }: NodeProps) {
   const diffType = data.__diffType as 'modified' | 'added' | 'deleted' | undefined
+  const mockEnabled = Boolean(data.mockOutputEnabled)
   const diffBorder =
     diffType === 'modified'
       ? '#3b82f6'
@@ -15,7 +16,7 @@ export function TriggerNode({ data, selected }: NodeProps) {
   return (
     <div style={{
       background: '#0e1015',
-      border: `1px solid ${selected ? 'rgba(255,255,255,0.4)' : diffBorder || 'rgba(255,255,255,0.08)'}`,
+      border: `1px solid ${selected ? 'rgba(255,255,255,0.4)' : mockEnabled ? '#facc15' : diffBorder || 'rgba(255,255,255,0.08)'}`,
       borderRadius: 6,
       padding: '10px 16px 10px 12px',
       minWidth: 200,
@@ -23,6 +24,8 @@ export function TriggerNode({ data, selected }: NodeProps) {
       position: 'relative',
       boxShadow: selected
         ? '0 0 0 2px rgba(255,255,255,0.1)'
+        : mockEnabled
+        ? '0 0 0 2px rgba(250,204,21,0.35)'
         : diffBorder
         ? `0 0 0 2px ${diffBorder}40`
         : '0 4px 12px rgba(0,0,0,0.5)',

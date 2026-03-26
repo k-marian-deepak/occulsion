@@ -1884,6 +1884,42 @@ const DEFAULT_PYTHON_SCRIPT = [
   'print(json.dumps(payload))',
 ].join('\n')
 const DEFAULT_PYTHON_REQUIREMENTS = ''
+const DEFAULT_MOCK_OUTPUT_EXAMPLE = `{
+  "output": "",
+  "step_status": {
+    "code": 1,
+    "message": "",
+    "verbose": ""
+  }
+}`
+
+function buildMockOutputExample(stepLabel: string) {
+  if (/suspend/i.test(stepLabel)) {
+    return `{
+  "output": "",
+  "step_status": {
+    "code": 1,
+    "message": "",
+    "verbose": ""
+  }
+}`
+  }
+
+  if (/list contractors|list users|okta/i.test(stepLabel)) {
+    return `{
+  "api_object": [
+    {
+      "id": "00u1gx3yvuok9XyR55d7",
+      "status": "PROVISIONED",
+      "created": "2021-08-15T11:26:06.000Z",
+      "activated": "2021-08-15T15:50:02.000Z"
+    }
+  ]
+}`
+  }
+
+  return DEFAULT_MOCK_OUTPUT_EXAMPLE
+}
 
 const PYTHON_STEP_VARIANTS = [
   {
@@ -2167,6 +2203,11 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const isPythonStep = /python/i.test(String(node.data?.label || ''))
   const isSprigFunctionStep = /sprig|function|dynamic data|manipulation/i.test(String(node.data?.label || ''))
   const { nodes, edges, setNodes, setEdges, selectNode, persistCurrentWorkflowGraph } = useWorkflowStore()
+  const [panelTab, setPanelTab] = useState<'properties' | 'execution' | 'mock'>('properties')
+  const [executionTab, setExecutionTab] = useState<'output' | 'input' | 'debug'>('output')
+  const [mockOutputEnabled, setMockOutputEnabled] = useState(Boolean(node.data?.mockOutputEnabled))
+  const [mockOutputText, setMockOutputText] = useState(String(node.data?.mockOutputText || buildMockOutputExample(String(node.data?.label || ''))))
+  const [mockMenuOpen, setMockMenuOpen] = useState(false)
   const [isHttpMode, setIsHttpMode] = useState(false)
   const [showHttpConfirm, setShowHttpConfirm] = useState(false)
   const [recipient, setRecipient] = useState(String(node.data?.recipient || ''))
@@ -2218,6 +2259,25 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   )
   const selectedPythonVariant =
     PYTHON_STEP_VARIANTS.find((item) => item.id === pythonStepVariant) || PYTHON_STEP_VARIANTS[0]
+  const mockOutputHasTemplate = /\{\{[\s\S]*\}\}/.test(mockOutputText)
+  const mockOutputTooLarge = new Blob([mockOutputText]).size > 100 * 1024
+  const mockOutputJsonValid = (() => {
+    if (mockOutputHasTemplate) return true
+    try {
+      JSON.parse(mockOutputText)
+      return true
+    } catch {
+      return false
+    }
+  })()
+
+  const copyText = async (value: string) => {
+    try {
+      await navigator.clipboard.writeText(value)
+    } catch {
+      window.alert('Unable to copy content')
+    }
+  }
 
   const persistNodeData = (partial: Record<string, unknown>) => {
     const nextNodes = nodes.map((item) =>
@@ -2374,6 +2434,11 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
     setJqExpressionInput(String(node.data?.jqExpressionInput || DEFAULT_JQ_EXPRESSION))
     setSprigFunctionInput(String(node.data?.sprigFunctionInput || '{{ add 5 3 }}'))
     setExpandedCategory('String Manipulation')
+    setPanelTab('properties')
+    setExecutionTab('output')
+    setMockOutputEnabled(Boolean(node.data?.mockOutputEnabled))
+    setMockOutputText(String(node.data?.mockOutputText || buildMockOutputExample(String(node.data?.label || ''))))
+    setMockMenuOpen(false)
     setAutocomplete(null)
     setActiveField(null)
     setPickerOpenFor(null)
@@ -2388,11 +2453,23 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
       {/* ── Header Tabs & Toolbar ─────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px 0', borderBottom: '1px solid #2a2e35' }}>
         <div style={{ display: 'flex', gap: 20 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: '#fff', paddingBottom: 12, borderBottom: '2px solid #fff', cursor: 'pointer' }}>Properties</div>
-          <div style={{ fontSize: 13, fontWeight: 500, color: '#6b7280', paddingBottom: 12, cursor: 'pointer' }}>Execution Log</div>
-          <div style={{ fontSize: 13, fontWeight: 500, color: '#6b7280', paddingBottom: 12, cursor: 'pointer' }}>Mock Output</div>
+          <button onClick={() => setPanelTab('properties')} style={{ background: 'transparent', border: 'none', fontSize: 13, fontWeight: panelTab === 'properties' ? 600 : 500, color: panelTab === 'properties' ? '#fff' : '#6b7280', paddingBottom: 12, borderBottom: panelTab === 'properties' ? '2px solid #fff' : '2px solid transparent', cursor: 'pointer' }}>Properties</button>
+          <button onClick={() => setPanelTab('execution')} style={{ background: 'transparent', border: 'none', fontSize: 13, fontWeight: panelTab === 'execution' ? 600 : 500, color: panelTab === 'execution' ? '#fff' : '#6b7280', paddingBottom: 12, borderBottom: panelTab === 'execution' ? '2px solid #fff' : '2px solid transparent', cursor: 'pointer' }}>Execution Log</button>
+          <button onClick={() => setPanelTab('mock')} style={{ background: 'transparent', border: 'none', fontSize: 13, fontWeight: panelTab === 'mock' ? 600 : 500, color: panelTab === 'mock' ? '#fff' : '#6b7280', paddingBottom: 12, borderBottom: panelTab === 'mock' ? '2px solid #fff' : '2px solid transparent', cursor: 'pointer' }}>Mock Output</button>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, paddingBottom: 12, color: '#9ca3af' }}>
+          <button
+            onClick={() => {
+              const next = !mockOutputEnabled
+              setMockOutputEnabled(next)
+              persistNodeData({ mockOutputEnabled: next, mockOutputText })
+              window.alert(next ? 'Execute with mock output enabled for this step.' : 'Mock output disabled for this step.')
+            }}
+            title="Execute with mock output"
+            style={{ background: 'none', border: 'none', color: mockOutputEnabled ? '#facc15' : '#9ca3af', cursor: 'pointer', display: 'flex' }}
+          >
+            <i className="fa-regular fa-flag" />
+          </button>
           <button style={{ background: 'none', border: 'none', color: '#9ca3af', cursor: 'pointer', display: 'flex' }}><i className="fa-solid fa-arrow-right-to-bracket" style={{ transform: 'rotate(180deg)' }} /></button>
           <button 
             onClick={() => {
@@ -2456,7 +2533,9 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
       {/* ── Parameters Section ────────────────────────────────── */}
       <div style={{ padding: '24px 20px' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Parameters</div>
+          <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>
+            {panelTab === 'properties' ? 'Parameters' : panelTab === 'execution' ? 'Execution output' : 'Mock output'}
+          </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, color: '#9ca3af', position: 'relative' }}>
             <RotateCcw size={14} style={{ cursor: 'pointer' }} />
             <ArrowRightLeft size={14} style={{ cursor: 'pointer', color: showHttpConfirm ? '#fff' : '#9ca3af' }} onClick={() => setShowHttpConfirm(!showHttpConfirm)} />
@@ -2486,7 +2565,8 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
           </div>
         </div>
 
-        {isHttpMode ? (
+        {panelTab === 'properties' ? (
+          isHttpMode ? (
           <div>
             {/* Endpoint */}
             <div style={{ background: '#17191e', border: '1px solid #333842', borderRadius: 6, display: 'flex', alignItems: 'center', padding: '10px 12px', marginBottom: 16 }}>
@@ -3405,10 +3485,161 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
               </>
             )}
           </div>
+          )
+        ) : panelTab === 'execution' ? (
+          <div>
+            <div style={{ display: 'flex', gap: 16, borderBottom: '1px solid #2a2e35', marginBottom: 10 }}>
+              {[
+                { id: 'output', label: 'Output' },
+                { id: 'input', label: 'Input' },
+                { id: 'debug', label: 'Debug' },
+              ].map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => setExecutionTab(item.id as 'output' | 'input' | 'debug')}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: executionTab === item.id ? '#fff' : '#6b7280',
+                    fontSize: 13,
+                    fontWeight: executionTab === item.id ? 600 : 500,
+                    padding: '0 0 10px',
+                    borderBottom: executionTab === item.id ? '2px solid #fff' : '2px solid transparent',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ color: '#9ca3af', fontSize: 12 }}>Execution sample for selected step</div>
+              <button onClick={() => copyText(mockOutputText)} style={{ background: 'transparent', border: '1px solid #333842', color: '#cbd5e1', borderRadius: 6, padding: '4px 8px', fontSize: 11, cursor: 'pointer' }}>
+                <i className="fa-regular fa-copy" style={{ marginRight: 6 }} /> Copy
+              </button>
+            </div>
+
+            <textarea
+              readOnly
+              value={executionTab === 'output' ? mockOutputText : executionTab === 'input' ? '{"trigger_event":"sample"}' : `mode=draft\nmock_enabled=${mockOutputEnabled ? 'yes' : 'no'}`}
+              style={{ width: '100%', minHeight: 220, background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
+            />
+
+            <div style={{ marginTop: 12, display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => {
+                  setPanelTab('mock')
+                  setMockOutputEnabled(true)
+                  persistNodeData({ mockOutputEnabled: true, mockOutputText })
+                }}
+                style={{ background: '#17191e', border: '1px solid #333842', color: '#e2e8f0', borderRadius: 6, padding: '6px 10px', fontSize: 11, cursor: 'pointer' }}
+              >
+                Use as mock output
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <div style={{ marginBottom: 14, color: '#9ca3af', fontSize: 12, lineHeight: 1.5 }}>
+              When this step is executed in draft mode, it returns the mock output. Mock outputs are ignored in production executions.
+            </div>
+
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Enable mock output</div>
+              <div style={{ display: 'inline-flex', border: '1px solid #333842', borderRadius: 8, overflow: 'hidden' }}>
+                <button
+                  onClick={() => {
+                    setMockOutputEnabled(true)
+                    persistNodeData({ mockOutputEnabled: true, mockOutputText })
+                  }}
+                  style={{ background: mockOutputEnabled ? '#111827' : '#1f2937', color: '#fff', border: 'none', padding: '6px 14px', cursor: 'pointer', fontSize: 12 }}
+                >
+                  Yes
+                </button>
+                <button
+                  onClick={() => {
+                    setMockOutputEnabled(false)
+                    persistNodeData({ mockOutputEnabled: false, mockOutputText })
+                  }}
+                  style={{ background: !mockOutputEnabled ? '#111827' : '#1f2937', color: '#fff', border: 'none', padding: '6px 14px', cursor: 'pointer', fontSize: 12 }}
+                >
+                  No
+                </button>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative' }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>Output (max 100 KB)</div>
+              <button onClick={() => setMockMenuOpen((prev) => !prev)} style={{ background: 'transparent', border: 'none', color: '#9ca3af', cursor: 'pointer' }}>
+                <MoreHorizontal size={14} />
+              </button>
+              {mockMenuOpen && (
+                <div style={{ position: 'absolute', top: 24, right: 0, width: 150, background: '#252830', border: '1px solid #333842', borderRadius: 8, boxShadow: '0 12px 30px rgba(0,0,0,0.5)', zIndex: 30 }}>
+                  <button
+                    onClick={() => {
+                      const example = buildMockOutputExample(String(node.data?.label || ''))
+                      setMockOutputText(example)
+                      persistNodeData({ mockOutputText: example })
+                      setMockMenuOpen(false)
+                    }}
+                    style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '8px 10px', cursor: 'pointer', fontSize: 12 }}
+                  >
+                    Output Example
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMockMenuOpen(false)
+                      setPanelTab('execution')
+                    }}
+                    style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', textAlign: 'left', padding: '8px 10px', cursor: 'pointer', fontSize: 12 }}
+                  >
+                    Edit YAML
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <textarea
+              value={mockOutputText}
+              onChange={(event) => {
+                const value = event.target.value
+                setMockOutputText(value)
+                persistNodeData({ mockOutputText: value })
+              }}
+              style={{ width: '100%', minHeight: 260, background: '#17191e', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, outline: 'none', resize: 'vertical', fontFamily: 'monospace' }}
+            />
+
+            <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <button onClick={() => copyText(mockOutputText)} style={{ background: '#17191e', border: '1px solid #333842', color: '#cbd5e1', borderRadius: 6, padding: '6px 10px', fontSize: 11, cursor: 'pointer' }}>
+                <i className="fa-regular fa-copy" style={{ marginRight: 6 }} /> Copy output
+              </button>
+              <button
+                onClick={() => {
+                  if (mockOutputEnabled) {
+                    window.alert('Step executed with mock output in draft mode.')
+                  } else {
+                    window.alert('Enable mock output first.')
+                  }
+                }}
+                style={{ background: '#17191e', border: '1px solid #333842', color: '#e2e8f0', borderRadius: 6, padding: '6px 10px', fontSize: 11, cursor: 'pointer' }}
+              >
+                Execute with mock output
+              </button>
+            </div>
+
+            <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 6, border: `1px solid ${mockOutputJsonValid && !mockOutputTooLarge ? '#14532d' : '#7f1d1d'}`, background: mockOutputJsonValid && !mockOutputTooLarge ? 'rgba(20,83,45,0.25)' : 'rgba(127,29,29,0.25)', color: mockOutputJsonValid && !mockOutputTooLarge ? '#86efac' : '#fca5a5', fontSize: 11, lineHeight: 1.5 }}>
+              {mockOutputTooLarge
+                ? 'Mock output exceeds 100KB.'
+                : mockOutputJsonValid
+                ? 'Mock output looks valid. Go-template expressions are supported.'
+                : 'Invalid JSON format. Use Output Example to reset structure.'}
+            </div>
+          </div>
         )}
 
         {/* Execution Options */}
-        <div style={{ borderTop: '1px solid #2a2e35', paddingTop: 16 }}>
+        <div style={{ borderTop: '1px solid #2a2e35', paddingTop: 16, display: panelTab === 'properties' ? 'block' : 'none' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Execution Options</div>
             <ChevronDown size={16} color="#9ca3af" />

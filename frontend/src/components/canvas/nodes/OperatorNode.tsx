@@ -3,6 +3,7 @@ import { GitBranch } from 'lucide-react'
 
 export function OperatorNode({ data, selected }: NodeProps) {
   const diffType = data.__diffType as 'modified' | 'added' | 'deleted' | undefined
+  const mockEnabled = Boolean(data.mockOutputEnabled)
   const diffBorder =
     diffType === 'modified'
       ? '#3b82f6'
@@ -15,13 +16,13 @@ export function OperatorNode({ data, selected }: NodeProps) {
   return (
     <div style={{
       background: 'var(--bg2)',
-      border: `1px solid ${selected ? 'var(--amber)' : diffBorder || 'var(--abg)'}`,
+      border: `1px solid ${selected ? 'var(--amber)' : mockEnabled ? '#facc15' : diffBorder || 'var(--abg)'}`,
       borderRadius: 10,
       padding: '10px 14px',
       minWidth: 160,
       position: 'relative',
       transition: 'all 0.15s ease',
-      boxShadow: diffBorder ? `0 0 0 2px ${diffBorder}40` : 'none',
+      boxShadow: mockEnabled ? '0 0 0 2px rgba(250,204,21,0.35)' : diffBorder ? `0 0 0 2px ${diffBorder}40` : 'none',
     }}>
       <Handle type="target" position={Position.Top} style={{ background: 'var(--amber)', width: 8, height: 8 }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
