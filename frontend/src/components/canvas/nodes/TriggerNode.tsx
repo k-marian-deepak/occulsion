@@ -82,6 +82,31 @@ export function TriggerNode({ data, selected }: NodeProps) {
           {diffType}
         </div>
       )}
+
+      {selected && (
+        <button
+          title="Replace trigger"
+          style={{
+            position: 'absolute',
+            top: -40,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            width: 28,
+            height: 28,
+            borderRadius: 6,
+            border: '1px solid #333842',
+            background: '#252830',
+            color: '#e2e8f0',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 12,
+          }}
+        >
+          <i className="fa-solid fa-right-left" />
+        </button>
+      )}
     </div>
   )
 }

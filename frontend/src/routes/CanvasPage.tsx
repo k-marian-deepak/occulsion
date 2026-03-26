@@ -58,6 +58,60 @@ const TEST_TRIGGER_EVENTS = [
   { id: 'evt-3', label: 'Previous trigger event - Endpoint malware detection' },
 ]
 
+const TRIGGER_TYPE_OPTIONS = [
+  { id: 'on-demand', label: 'On-demand trigger' },
+  { id: 'integration', label: 'Integration trigger' },
+  { id: 'schedule', label: 'Schedule trigger' },
+  { id: 'system-events', label: 'System events' },
+  { id: 'torq-cases', label: 'Torq Cases' },
+  { id: 'torq-interact', label: 'Torq Interact' },
+] as const
+
+const TRIGGER_CONDITION_OPERATORS = ['Equals', 'Contains'] as const
+
+const TRIGGER_EVENT_LOG_SAMPLE = [
+  {
+    id: 'AA-001966',
+    timestamp: Date.now() - 2 * 60 * 60 * 1000,
+    triggeredBy: 'D',
+    event: {
+      eventType: 'user.session.start',
+      displayMessage: 'User login to Okta',
+      severity: 'INFO',
+    },
+  },
+  {
+    id: 'AA-001965',
+    timestamp: Date.now() - 4 * 60 * 60 * 1000,
+    triggeredBy: 'D',
+    event: {
+      eventType: 'user.session.start',
+      displayMessage: 'User logout from Okta',
+      severity: 'INFO',
+    },
+  },
+  {
+    id: 'AA-001963',
+    timestamp: Date.now() - 7 * 60 * 60 * 1000,
+    triggeredBy: 'D',
+    event: {
+      eventType: 'system.failure',
+      displayMessage: 'Workflow step failed',
+      severity: 'HIGH',
+    },
+  },
+  {
+    id: 'AA-001961',
+    timestamp: Date.now() - 10 * 60 * 60 * 1000,
+    triggeredBy: 'D',
+    event: {
+      eventType: 'user.session.start',
+      displayMessage: 'User login to Okta',
+      severity: 'INFO',
+    },
+  },
+] as const
+
 const TRIGGER_EXECUTION_TYPES = [
   {
     id: 'webhook',
@@ -131,6 +185,42 @@ function buildTriggerUrls(baseHookUrl: string, workflowId: string) {
     async: asyncUrl,
     sync: syncUrl,
   }
+}
+
+function formatEventLogTimestamp(timestamp: number) {
+  const eventDate = new Date(timestamp)
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const startOfYesterday = startOfToday - 24 * 60 * 60 * 1000
+
+  if (timestamp >= startOfToday) {
+    return `Today at ${eventDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+  }
+
+  if (timestamp >= startOfYesterday) {
+    return `Yesterday at ${eventDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+  }
+
+  return eventDate.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+}
+
+function resolveEventPath(eventObject: Record<string, any>, path: string) {
+  const normalized = path.trim().replace(/^\{\{\s*/, '').replace(/\s*\}\}$/, '').replace(/^\$\.event\.?/, '')
+  if (!normalized) return eventObject
+  return normalized.split('.').reduce<any>((acc, key) => (acc && key in acc ? acc[key] : undefined), eventObject)
+}
+
+function eventMatchesTriggerCondition(
+  eventObject: Record<string, any>,
+  condition: { path: string; operator: 'Equals' | 'Contains'; value: string },
+) {
+  const resolvedValue = resolveEventPath(eventObject, condition.path)
+  if (resolvedValue == null) return false
+  const resolvedText = String(resolvedValue).toLowerCase()
+  const targetText = String(condition.value || '').toLowerCase()
+  if (!targetText) return true
+  if (condition.operator === 'Contains') return resolvedText.includes(targetText)
+  return resolvedText === targetText
 }
 
 export function CanvasPage() {
@@ -2336,6 +2426,22 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const { nodes, edges, setNodes, setEdges, selectNode, persistCurrentWorkflowGraph, currentWorkflowId } = useWorkflowStore()
   const [panelTab, setPanelTab] = useState<'properties' | 'execution' | 'mock'>('properties')
   const [executionTab, setExecutionTab] = useState<'output' | 'input' | 'debug'>('output')
+  const [triggerInspectorTab, setTriggerInspectorTab] = useState<'trigger' | 'event-log'>(String(node.data?.triggerInspectorTab || 'trigger') as 'trigger' | 'event-log')
+  const [triggerType, setTriggerType] = useState<(typeof TRIGGER_TYPE_OPTIONS)[number]['id']>(String(node.data?.triggerType || 'on-demand') as (typeof TRIGGER_TYPE_OPTIONS)[number]['id'])
+  const [triggeredFrom, setTriggeredFrom] = useState<'anywhere' | 'nested-only'>(String(node.data?.triggeredFrom || 'anywhere') as 'anywhere' | 'nested-only')
+  const [triggerExposeInCases, setTriggerExposeInCases] = useState(Boolean(node.data?.triggerExposeInCases))
+  const [triggerConditionJoin, setTriggerConditionJoin] = useState<'AND' | 'OR'>(String(node.data?.triggerConditionJoin || 'AND') as 'AND' | 'OR')
+  const [triggerConditions, setTriggerConditions] = useState<Array<{ path: string; operator: 'Equals' | 'Contains'; value: string }>>(
+    Array.isArray(node.data?.triggerConditions) && node.data.triggerConditions.length > 0
+      ? node.data.triggerConditions
+      : [{ path: '{{ $.event.eventType }}', operator: 'Equals', value: 'user.session.start' }],
+  )
+  const [triggerEventLog, setTriggerEventLog] = useState<Array<{ id: string; timestamp: number; triggeredBy: string; event: Record<string, any> }>>(
+    Array.isArray(node.data?.triggerEventLog) && node.data.triggerEventLog.length > 0
+      ? node.data.triggerEventLog
+      : (TRIGGER_EVENT_LOG_SAMPLE as any),
+  )
+  const [expandedEventLogId, setExpandedEventLogId] = useState<string | null>(String(node.data?.expandedEventLogId || TRIGGER_EVENT_LOG_SAMPLE[0]?.id || ''))
   const [triggerExecutionType, setTriggerExecutionType] = useState<'webhook' | 'async' | 'sync'>(String(node.data?.triggerExecutionType || 'webhook') as 'webhook' | 'async' | 'sync')
   const inferredSlackTriggerMode = isSlackCustomEventsTrigger ? 'custom-events' : isSlackSlashCommandTrigger ? 'slash-command' : 'slash-command'
   const [slackTriggerMode, setSlackTriggerMode] = useState<'slash-command' | 'custom-events'>(String(node.data?.slackTriggerMode || inferredSlackTriggerMode) as 'slash-command' | 'custom-events')
@@ -2451,6 +2557,18 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
   const selectedTriggerInfo = TRIGGER_EXECUTION_TYPES.find((item) => item.id === triggerExecutionType) || TRIGGER_EXECUTION_TYPES[0]
   const selectedCircleCITemplate =
     CIRCLECI_ROTATION_TEMPLATES.find((item) => item.id === circleciTemplateId) || CIRCLECI_ROTATION_TEMPLATES[0]
+  const triggerEventRows = triggerEventLog.slice(0, 30).map((entry) => {
+    const conditionsResult = triggerConditions.length === 0
+      ? true
+      : triggerConditionJoin === 'AND'
+      ? triggerConditions.every((condition) => eventMatchesTriggerCondition(entry.event, condition))
+      : triggerConditions.some((condition) => eventMatchesTriggerCondition(entry.event, condition))
+
+    return {
+      ...entry,
+      matches: conditionsResult,
+    }
+  })
   const mockOutputHasTemplate = /\{\{[\s\S]*\}\}/.test(mockOutputText)
   const mockOutputTooLarge = new Blob([mockOutputText]).size > 100 * 1024
   const slackBlocksJsonValid = (() => {
@@ -2486,6 +2604,11 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
     } catch {
       window.alert('Unable to copy content')
     }
+  }
+
+  const updateTriggerConditions = (nextConditions: Array<{ path: string; operator: 'Equals' | 'Contains'; value: string }>) => {
+    setTriggerConditions(nextConditions)
+    persistNodeData({ triggerConditions: nextConditions })
   }
 
   const persistNodeData = (partial: Record<string, unknown>) => {
@@ -2645,6 +2768,22 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
     setExpandedCategory('String Manipulation')
     setPanelTab('properties')
     setExecutionTab('output')
+    setTriggerInspectorTab(String(node.data?.triggerInspectorTab || 'trigger') as 'trigger' | 'event-log')
+    setTriggerType(String(node.data?.triggerType || 'on-demand') as (typeof TRIGGER_TYPE_OPTIONS)[number]['id'])
+    setTriggeredFrom(String(node.data?.triggeredFrom || 'anywhere') as 'anywhere' | 'nested-only')
+    setTriggerExposeInCases(Boolean(node.data?.triggerExposeInCases))
+    setTriggerConditionJoin(String(node.data?.triggerConditionJoin || 'AND') as 'AND' | 'OR')
+    setTriggerConditions(
+      Array.isArray(node.data?.triggerConditions) && node.data.triggerConditions.length > 0
+        ? node.data.triggerConditions
+        : [{ path: '{{ $.event.eventType }}', operator: 'Equals', value: 'user.session.start' }],
+    )
+    setTriggerEventLog(
+      Array.isArray(node.data?.triggerEventLog) && node.data.triggerEventLog.length > 0
+        ? node.data.triggerEventLog
+        : (TRIGGER_EVENT_LOG_SAMPLE as any),
+    )
+    setExpandedEventLogId(String(node.data?.expandedEventLogId || TRIGGER_EVENT_LOG_SAMPLE[0]?.id || ''))
     setTriggerExecutionType(String(node.data?.triggerExecutionType || 'webhook') as 'webhook' | 'async' | 'sync')
     setSlackTriggerMode(String(node.data?.slackTriggerMode || (isSlackCustomEventsTrigger ? 'custom-events' : isSlackSlashCommandTrigger ? 'slash-command' : 'slash-command')) as 'slash-command' | 'custom-events')
     setSlackSlashCommand(String(node.data?.slackSlashCommand || 'check_url'))
@@ -2904,8 +3043,257 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
           </div>
         ) : (
           <div>
-            {isTeamsTrigger ? (
+            {isTrigger ? (
               <>
+                <div style={{ display: 'flex', gap: 16, borderBottom: '1px solid #2a2e35', marginBottom: 12 }}>
+                  <button
+                    onClick={() => {
+                      setTriggerInspectorTab('trigger')
+                      persistNodeData({ triggerInspectorTab: 'trigger' })
+                    }}
+                    style={{ background: 'transparent', border: 'none', color: triggerInspectorTab === 'trigger' ? '#fff' : '#6b7280', fontSize: 13, fontWeight: triggerInspectorTab === 'trigger' ? 600 : 500, padding: '0 0 10px', borderBottom: triggerInspectorTab === 'trigger' ? '2px solid #fff' : '2px solid transparent', cursor: 'pointer' }}
+                  >
+                    Trigger
+                  </button>
+                  <button
+                    onClick={() => {
+                      setTriggerInspectorTab('event-log')
+                      persistNodeData({ triggerInspectorTab: 'event-log' })
+                    }}
+                    style={{ background: 'transparent', border: 'none', color: triggerInspectorTab === 'event-log' ? '#fff' : '#6b7280', fontSize: 13, fontWeight: triggerInspectorTab === 'event-log' ? 600 : 500, padding: '0 0 10px', borderBottom: triggerInspectorTab === 'event-log' ? '2px solid #fff' : '2px solid transparent', cursor: 'pointer' }}
+                  >
+                    Event Log
+                  </button>
+                </div>
+
+                {triggerInspectorTab === 'event-log' ? (
+                  <>
+                    <div style={{ marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ color: '#9ca3af', fontSize: 12 }}>Showing latest {Math.min(triggerEventRows.length, 30)} events (retained 90 days)</div>
+                      <button
+                        onClick={() => {
+                          const refreshed = triggerEventLog.map((entry) => ({ ...entry }))
+                          setTriggerEventLog(refreshed)
+                          persistNodeData({ triggerEventLog: refreshed })
+                        }}
+                        style={{ background: 'transparent', border: '1px solid #333842', color: '#cbd5e1', borderRadius: 6, padding: '4px 8px', fontSize: 11, cursor: 'pointer' }}
+                      >
+                        <i className="fa-solid fa-rotate-right" style={{ marginRight: 6 }} /> Refresh
+                      </button>
+                    </div>
+
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      {triggerEventRows.map((entry) => (
+                        <div key={entry.id} style={{ border: `1px solid ${entry.matches ? '#14532d' : '#333842'}`, borderRadius: 8, background: '#17191e' }}>
+                          <button
+                            onClick={() => {
+                              const next = expandedEventLogId === entry.id ? '' : entry.id
+                              setExpandedEventLogId(next || null)
+                              persistNodeData({ expandedEventLogId: next })
+                            }}
+                            style={{ width: '100%', background: 'transparent', border: 'none', color: '#e2e8f0', padding: '10px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <i className={`fa-solid ${entry.matches ? 'fa-circle-check' : 'fa-circle'}`} style={{ color: entry.matches ? '#22c55e' : '#6b7280', fontSize: 12 }} />
+                              <span style={{ fontSize: 12, fontWeight: 600 }}>{entry.id}</span>
+                              <span style={{ color: '#9ca3af', fontSize: 12 }}>{formatEventLogTimestamp(entry.timestamp)}</span>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ color: '#f97316', fontSize: 12, fontWeight: 600 }}>{entry.triggeredBy}</span>
+                              <i className={`fa-solid ${expandedEventLogId === entry.id ? 'fa-angle-up' : 'fa-angle-down'}`} />
+                            </div>
+                          </button>
+
+                          {expandedEventLogId === entry.id && (
+                            <div style={{ borderTop: '1px solid #333842', padding: '10px 12px' }}>
+                              <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div style={{ color: '#e2e8f0', fontSize: 12, fontWeight: 600 }}>Event JSON</div>
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                  <button
+                                    onClick={() => copyText(JSON.stringify(entry.event, null, 2))}
+                                    style={{ background: 'transparent', border: '1px solid #333842', color: '#cbd5e1', borderRadius: 6, padding: '4px 8px', fontSize: 11, cursor: 'pointer' }}
+                                  >
+                                    <i className="fa-regular fa-copy" />
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      window.alert('Event resent to workflow execution queue.')
+                                    }}
+                                    disabled={!entry.matches}
+                                    style={{ background: 'transparent', border: '1px solid #333842', color: entry.matches ? '#cbd5e1' : '#6b7280', borderRadius: 6, padding: '4px 8px', fontSize: 11, cursor: entry.matches ? 'pointer' : 'not-allowed' }}
+                                    title={entry.matches ? 'Resend event' : 'Event does not satisfy current trigger conditions'}
+                                  >
+                                    <i className="fa-solid fa-rotate-right" />
+                                  </button>
+                                </div>
+                              </div>
+                              <textarea
+                                readOnly
+                                value={JSON.stringify(entry.event, null, 2)}
+                                style={{ width: '100%', minHeight: 140, background: '#0f1115', border: '1px solid #333842', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', fontSize: 12, fontFamily: 'monospace', resize: 'vertical' }}
+                              />
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>Trigger type</div>
+                      <button
+                        onClick={() => {
+                          const currentIndex = TRIGGER_TYPE_OPTIONS.findIndex((option) => option.id === triggerType)
+                          const nextOption = TRIGGER_TYPE_OPTIONS[(currentIndex + 1) % TRIGGER_TYPE_OPTIONS.length]
+                          setTriggerType(nextOption.id)
+                          persistNodeData({ triggerType: nextOption.id, label: nextOption.label.replace(' trigger', '') })
+                        }}
+                        style={{ background: '#17191e', border: '1px solid #333842', color: '#e2e8f0', borderRadius: 6, padding: '6px 10px', fontSize: 11, cursor: 'pointer' }}
+                      >
+                        <i className="fa-solid fa-right-left" style={{ marginRight: 6 }} /> Replace trigger
+                      </button>
+                    </div>
+
+                    <div style={{ marginBottom: 14, display: 'grid', gap: 8 }}>
+                      {TRIGGER_TYPE_OPTIONS.map((option) => (
+                        <button
+                          key={option.id}
+                          onClick={() => {
+                            setTriggerType(option.id)
+                            persistNodeData({ triggerType: option.id, label: option.label.replace(' trigger', '') })
+                          }}
+                          style={{ background: triggerType === option.id ? '#334155' : '#17191e', border: '1px solid #333842', borderRadius: 6, color: '#e2e8f0', padding: '8px 10px', textAlign: 'left', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff', marginBottom: 8 }}>Triggered from</div>
+                      <div style={{ display: 'inline-flex', border: '1px solid #333842', borderRadius: 8, overflow: 'hidden' }}>
+                        <button
+                          onClick={() => {
+                            setTriggeredFrom('anywhere')
+                            persistNodeData({ triggeredFrom: 'anywhere' })
+                          }}
+                          style={{ background: triggeredFrom === 'anywhere' ? '#111827' : '#1f2937', color: '#fff', border: 'none', padding: '6px 14px', cursor: 'pointer', fontSize: 12 }}
+                        >
+                          Anywhere
+                        </button>
+                        <button
+                          onClick={() => {
+                            setTriggeredFrom('nested-only')
+                            persistNodeData({ triggeredFrom: 'nested-only' })
+                          }}
+                          style={{ background: triggeredFrom === 'nested-only' ? '#111827' : '#1f2937', color: '#fff', border: 'none', padding: '6px 14px', cursor: 'pointer', fontSize: 12 }}
+                        >
+                          Nested only
+                        </button>
+                      </div>
+                    </div>
+
+                    <div style={{ marginBottom: 14 }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#e2e8f0', fontSize: 12, cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={triggerExposeInCases}
+                          onChange={(event) => {
+                            const next = event.target.checked
+                            setTriggerExposeInCases(next)
+                            persistNodeData({ triggerExposeInCases: next })
+                          }}
+                        />
+                        Expose in all cases
+                      </label>
+                    </div>
+
+                    <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#fff' }}>Will trigger when</div>
+                      <button
+                        onClick={() => {
+                          const nextJoin = triggerConditionJoin === 'AND' ? 'OR' : 'AND'
+                          setTriggerConditionJoin(nextJoin)
+                          persistNodeData({ triggerConditionJoin: nextJoin })
+                        }}
+                        style={{ background: '#17191e', border: '1px solid #333842', color: '#cbd5e1', borderRadius: 6, padding: '4px 8px', fontSize: 11, cursor: 'pointer' }}
+                      >
+                        Join: {triggerConditionJoin}
+                      </button>
+                    </div>
+
+                    <div style={{ display: 'grid', gap: 10, marginBottom: 12 }}>
+                      {triggerConditions.map((condition, conditionIndex) => (
+                        <div key={`condition-${conditionIndex}`} style={{ border: '1px solid #333842', borderRadius: 8, padding: 10, background: '#17191e' }}>
+                          <input
+                            value={condition.path}
+                            onChange={(event) => {
+                              const next = [...triggerConditions]
+                              next[conditionIndex] = { ...next[conditionIndex], path: event.target.value }
+                              updateTriggerConditions(next)
+                            }}
+                            style={{ width: '100%', background: '#0f1115', border: '1px solid #333842', borderRadius: 6, padding: '8px 10px', color: '#e2e8f0', fontSize: 12, outline: 'none', fontFamily: 'monospace', marginBottom: 8 }}
+                          />
+                          <div style={{ display: 'grid', gridTemplateColumns: '150px 1fr auto', gap: 8 }}>
+                            <div style={{ position: 'relative' }}>
+                              <select
+                                value={condition.operator}
+                                onChange={(event) => {
+                                  const next = [...triggerConditions]
+                                  next[conditionIndex] = { ...next[conditionIndex], operator: event.target.value as 'Equals' | 'Contains' }
+                                  updateTriggerConditions(next)
+                                }}
+                                style={{ width: '100%', appearance: 'none', background: '#0f1115', border: '1px solid #333842', borderRadius: 6, padding: '8px 10px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
+                              >
+                                {TRIGGER_CONDITION_OPERATORS.map((operator) => (
+                                  <option key={operator} value={operator}>{operator}</option>
+                                ))}
+                              </select>
+                              <ChevronDown size={14} color="#9ca3af" style={{ position: 'absolute', right: 10, top: 9, pointerEvents: 'none' }} />
+                            </div>
+                            <input
+                              value={condition.value}
+                              onChange={(event) => {
+                                const next = [...triggerConditions]
+                                next[conditionIndex] = { ...next[conditionIndex], value: event.target.value }
+                                updateTriggerConditions(next)
+                              }}
+                              style={{ width: '100%', background: '#0f1115', border: '1px solid #333842', borderRadius: 6, padding: '8px 10px', color: '#e2e8f0', fontSize: 12, outline: 'none' }}
+                            />
+                            <button
+                              onClick={() => {
+                                if (triggerConditions.length === 1) return
+                                const next = triggerConditions.filter((_, idx) => idx !== conditionIndex)
+                                updateTriggerConditions(next)
+                              }}
+                              style={{ background: '#0f1115', border: '1px solid #333842', color: '#9ca3af', borderRadius: 6, padding: '8px 10px', fontSize: 11, cursor: triggerConditions.length === 1 ? 'not-allowed' : 'pointer', opacity: triggerConditions.length === 1 ? 0.5 : 1 }}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                          {conditionIndex < triggerConditions.length - 1 && (
+                            <div style={{ marginTop: 8, color: '#9ca3af', fontSize: 11, fontWeight: 700 }}>{triggerConditionJoin}</div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        const next: Array<{ path: string; operator: 'Equals' | 'Contains'; value: string }> = [
+                          ...triggerConditions,
+                          { path: '{{ $.event.displayMessage }}', operator: 'Contains', value: '' },
+                        ]
+                        updateTriggerConditions(next)
+                      }}
+                      style={{ background: 'transparent', border: 'none', color: '#cbd5e1', padding: 0, fontSize: 12, cursor: 'pointer', marginBottom: 16 }}
+                    >
+                      <i className="fa-solid fa-plus" style={{ marginRight: 6 }} /> Add Condition
+                    </button>
+
+                    {isTeamsTrigger ? (
+                      <>
                 <div style={{ marginBottom: 12, color: '#9ca3af', fontSize: 12, lineHeight: 1.5 }}>
                   Trigger when a Teams bot message matches your command pattern.
                 </div>
@@ -3141,6 +3529,10 @@ function PropertiesPanel({ node, onEditStep }: { node: any, onEditStep: () => vo
                   <strong style={{ color: '#e2e8f0' }}>cURL example</strong><br />
                   <span style={{ color: '#e2e8f0', fontFamily: 'monospace' }}>{`curl ${triggerUrls[triggerExecutionType]} -H "auth_header_name:secret" -d '{"body":[1,2,3]}'`}</span>
                 </div>
+              </>
+            ) : null}
+                  </>
+                )}
               </>
             ) : isCircleCIRotationStep ? (
               <>
