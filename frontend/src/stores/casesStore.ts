@@ -1,3 +1,5 @@
+// casesStore.ts - Zustand store for managing board cases and their states
+
 import { create } from 'zustand'
 
 export type BoardCaseState = 'new' | 'in_progress' | 'on_hold' | 'resolved' | 'closed'

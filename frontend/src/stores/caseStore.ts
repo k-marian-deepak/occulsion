@@ -1,3 +1,5 @@
+// caseStore.ts - Zustand store for managing case details and filters
+
 import { create } from 'zustand'
 
 export type Severity = 'critical' | 'high' | 'medium' | 'low'
