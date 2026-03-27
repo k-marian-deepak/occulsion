@@ -741,6 +741,11 @@ export function CanvasPage() {
   const [executeWorkflowValues, setExecuteWorkflowValues] = useState<Record<string, string>>({})
   const [executeWorkflowFiles, setExecuteWorkflowFiles] = useState<Record<string, { fileName: string; value: string }>>({})
   const [executeWorkflowErrors, setExecuteWorkflowErrors] = useState<Record<string, string>>({})
+  const [ownershipTransferOpen, setOwnershipTransferOpen] = useState(false)
+  const [transferWorkspaceInput, setTransferWorkspaceInput] = useState('')
+  const [transferUserInput, setTransferUserInput] = useState('')
+  const [roleSelectorLocked, setRoleSelectorLocked] = useState(false)
+  const [workspaceOwnerName, setWorkspaceOwnerName] = useState('Owner')
   const [viewportWidth, setViewportWidth] = useState<number>(typeof window !== 'undefined' ? window.innerWidth : 1920)
   const [activeRunId, setActiveRunId] = useState<string | null>(null)
   const [runLogEntries, setRunLogEntries] = useState<WorkflowRunEntry[]>([
@@ -791,6 +796,7 @@ export function CanvasPage() {
     : []
   const isCompactTopHeader = viewportWidth < 1620
   const isVeryCompactTopHeader = viewportWidth < 1440
+  const workspaceName = 'socrates-playground'
 
   const statusLabel =
     currentWorkflow?.status === 'published_enabled'
@@ -803,8 +809,49 @@ export function CanvasPage() {
       ? 'Under review'
       : 'Not published'
 
+  const statusTagTone =
+    currentWorkflow?.status === 'published_enabled'
+      ? { text: '#14532d', bg: 'rgba(34,197,94,0.22)', border: '#22c55e', dot: '#22c55e' }
+      : currentWorkflow?.status === 'published_disabled'
+      ? { text: '#713f12', bg: 'rgba(251,191,36,0.20)', border: '#f59e0b', dot: '#f59e0b' }
+      : currentWorkflow?.status === 'has_unpublished_changes'
+      ? { text: '#9f1239', bg: 'rgba(244,63,94,0.16)', border: '#f43f5e', dot: '#f43f5e' }
+      : currentWorkflow?.status === 'under_review'
+      ? { text: '#1e3a8a', bg: 'rgba(59,130,246,0.18)', border: '#60a5fa', dot: '#60a5fa' }
+      : { text: '#6b7280', bg: 'rgba(107,114,128,0.16)', border: '#6b7280', dot: '#6b7280' }
+
   const saveDraft = () => {
     return saveCurrentWorkflowDraft(currentWorkflow?.name || 'Untitled workflow')
+  }
+
+  const openOwnershipTransfer = () => {
+    setTransferWorkspaceInput('')
+    setTransferUserInput('')
+    setOwnershipTransferOpen(true)
+  }
+
+  const confirmOwnershipTransfer = () => {
+    if (currentUserRole !== 'owner') {
+      window.alert('Only the current owner can hand over this workspace.')
+      return
+    }
+
+    if (transferWorkspaceInput.trim() !== workspaceName) {
+      window.alert(`Type workspace name exactly: ${workspaceName}`)
+      return
+    }
+
+    const nextOwner = transferUserInput.trim()
+    if (!nextOwner) {
+      window.alert('Enter the username of the new owner.')
+      return
+    }
+
+    setWorkspaceOwnerName(nextOwner)
+    setCurrentUserRole('contributor')
+    setRoleSelectorLocked(true)
+    setOwnershipTransferOpen(false)
+    window.alert(`Ownership transferred to ${nextOwner}. Your role is now Contributor.`)
   }
 
   const openVersionHistory = () => {
@@ -1479,7 +1526,7 @@ export function CanvasPage() {
                     <i className="fa-solid fa-code-branch" style={{ color: '#000', fontSize: 14 }} />
                   </div>
                   <div style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    socrates-playground <span style={{color: '#9ca3af'}}>/</span> Create a Phishing Demo Case
+                    {workspaceName} <span style={{color: '#9ca3af'}}>/</span> Create a Phishing Demo Case
                   </div>
                 </div>
                 
@@ -1510,17 +1557,48 @@ export function CanvasPage() {
                   {!isCompactTopHeader && (
                     <select
                       value={currentUserRole}
-                      onChange={(e) => setCurrentUserRole(e.target.value as UserRole)}
-                      style={{ background: '#1c1e23', border: '1px solid #333842', color: '#e2e8f0', borderRadius: 6, padding: '7px 10px', fontSize: 12 }}
+                      onChange={(e) => {
+                        if (roleSelectorLocked) return
+                        setCurrentUserRole(e.target.value as UserRole)
+                      }}
+                      disabled={roleSelectorLocked}
+                      title={roleSelectorLocked ? 'Role is locked after ownership handover.' : undefined}
+                      style={{ background: '#1c1e23', border: '1px solid #333842', color: '#e2e8f0', borderRadius: 6, padding: '7px 10px', fontSize: 12, opacity: roleSelectorLocked ? 0.65 : 1, cursor: roleSelectorLocked ? 'not-allowed' : 'pointer' }}
                     >
                       <option value="creator">Creator</option>
                       <option value="contributor">Contributor</option>
                       <option value="owner">Owner</option>
                     </select>
                   )}
+                  {!isCompactTopHeader && currentUserRole === 'owner' && !roleSelectorLocked && (
+                    <button
+                      onClick={openOwnershipTransfer}
+                      style={{ background: '#1c1e23', border: '1px solid #4b5563', color: '#e2e8f0', borderRadius: 6, padding: '7px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                    >
+                      Transfer ownership
+                    </button>
+                  )}
                   {!isVeryCompactTopHeader && (
-                    <div style={{ fontSize: 12, color: '#9ca3af', padding: '6px 10px', border: '1px solid #333842', borderRadius: 6, background: '#1c1e23', whiteSpace: 'nowrap' }}>
-                      {statusLabel}
+                    <div style={{ fontSize: 11, color: '#9ca3af', whiteSpace: 'nowrap' }}>
+                      Owner: {workspaceOwnerName}
+                    </div>
+                  )}
+                  {!isVeryCompactTopHeader && (
+                    <div style={{
+                      fontSize: 12,
+                      color: statusTagTone.text,
+                      padding: '6px 10px',
+                      border: `1px solid ${statusTagTone.border}`,
+                      borderRadius: 999,
+                      background: statusTagTone.bg,
+                      whiteSpace: 'nowrap',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 7,
+                      fontWeight: 600,
+                    }}>
+                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: statusTagTone.dot, flexShrink: 0 }} />
+                      <span>{statusLabel}</span>
                     </div>
                   )}
                   <button onClick={saveDraft} style={{ background: 'transparent', color: '#fff', border: '1px solid #4b5563', borderRadius: 6, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
@@ -1793,6 +1871,54 @@ export function CanvasPage() {
                 style={{ background: '#e5e7eb', border: 'none', color: '#111827', borderRadius: 8, padding: '8px 18px', fontSize: 28, fontWeight: 500, cursor: 'pointer' }}
               >
                 Execute
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {ownershipTransferOpen && (
+        <div className="workflow-editor-modal" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ width: 520, background: '#252830', border: '1px solid #333842', borderRadius: 12, boxShadow: '0 20px 60px rgba(0,0,0,0.6)', overflow: 'hidden' }}>
+            <div style={{ padding: '18px 22px', borderBottom: '1px solid #333842', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ color: '#fff', fontSize: 18, fontWeight: 600 }}>Transfer workspace ownership</div>
+              <button onClick={() => setOwnershipTransferOpen(false)} style={{ background: 'none', border: 'none', color: '#e2e8f0', cursor: 'pointer' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ padding: 22, display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div style={{ color: '#94a3b8', fontSize: 12, lineHeight: 1.5 }}>
+                Type the workspace name and the new owner username to confirm handover. After confirmation, your role becomes Contributor and this role selector is locked.
+              </div>
+
+              <div>
+                <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Workspace name</div>
+                <input
+                  value={transferWorkspaceInput}
+                  onChange={(event) => setTransferWorkspaceInput(event.target.value)}
+                  placeholder={workspaceName}
+                  style={{ width: '100%', background: '#1c1e23', border: '1px solid #4b5563', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', outline: 'none', fontSize: 13 }}
+                />
+              </div>
+
+              <div>
+                <div style={{ color: '#e2e8f0', fontSize: 13, fontWeight: 600, marginBottom: 8 }}>New owner username</div>
+                <input
+                  value={transferUserInput}
+                  onChange={(event) => setTransferUserInput(event.target.value)}
+                  placeholder="username"
+                  style={{ width: '100%', background: '#1c1e23', border: '1px solid #4b5563', borderRadius: 6, padding: '10px 12px', color: '#e2e8f0', outline: 'none', fontSize: 13 }}
+                />
+              </div>
+            </div>
+
+            <div style={{ borderTop: '1px solid #333842', padding: '14px 22px', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button onClick={() => setOwnershipTransferOpen(false)} style={{ background: 'transparent', color: '#e2e8f0', border: '1px solid #4b5563', borderRadius: 6, padding: '8px 16px', cursor: 'pointer' }}>
+                Cancel
+              </button>
+              <button onClick={confirmOwnershipTransfer} style={{ background: '#e5e7eb', color: '#000', border: 'none', borderRadius: 6, padding: '8px 16px', fontWeight: 600, cursor: 'pointer' }}>
+                Confirm handover
               </button>
             </div>
           </div>

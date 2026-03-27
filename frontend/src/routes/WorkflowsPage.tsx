@@ -999,7 +999,7 @@ function AIModal({ onClose }: { onClose: () => void }) {
               )}
               
               {step === 'preview' && (
-                <div style={{ position: 'absolute', bottom: 16, right: 16, display: 'flex', gap: 10 }}>
+                <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '14px 16px', borderTop: '1px solid #2f3440', background: 'linear-gradient(180deg, rgba(28,30,35,0.55) 0%, rgba(28,30,35,0.98) 34%, #1c1e23 100%)', backdropFilter: 'blur(2px)', zIndex: 6 }}>
                   <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: 20, background: 'transparent', border: '1px solid #4b5563', color: '#fff', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
                   <button onClick={handleCreate} style={{ padding: '8px 16px', borderRadius: 20, background: '#e5e7eb', border: 'none', color: '#000', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Create Workflow</button>
                 </div>

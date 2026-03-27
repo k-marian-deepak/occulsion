@@ -3,6 +3,10 @@
         "/^cd /home/deepak/Projects/occlusion/frontend && npm run build$/": {
             "approve": true,
             "matchCommandLine": true
+        },
+        "/^npm run build$/": {
+            "approve": true,
+            "matchCommandLine": true
         }
     }
 }
